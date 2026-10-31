@@ -159,6 +159,10 @@ Phase 1, 2026-10-31.
 - **No undo for a wrong learned alias** — see Decisions. Revisit if it happens in practice.
 - **Worker `retryAttempts: 0`** still stands; processing is not yet idempotent per `update_id` (ingress dedupe covers Telegram retries).
 
+- **Proposed, not approved (user: "not yet", 2026-10-31):**
+  - *List clearing before the review gate* — the list only grows; a minimal R3 `/bought` (tap what you didn't get, rest cleared and recorded as purchases) would keep the list trustworthy during the two-week test. Plan change — user's call.
+  - *Usual quantity per item* — `qty` in the seed shown on `/list` ("חלב ×3 ליטר"), plus an optional number in a report overriding it. Never ask at report time (C7); no stock counting (N5). Later learnable from purchases (phase 2).
+
 ---
 
 ## PRD conflicts

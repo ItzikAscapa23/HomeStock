@@ -76,48 +76,42 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 ## Status
 
 - **Current phase:** 1 — Depletion reports and the shopping list
-- **State:** `in-progress`
+- **State:** `complete` — **review gate: two weeks of family use before phase 2**
 - **Last updated:** 2026-10-31
 
 ---
 
 ## Current phase progress
 
-*Phase 1 — Depletion reports and the shopping list.*
+*Phase 2 — Stock in and interval learning. **Not started — blocked by the phase 1 review gate** (see entry conditions).*
 
-- [x] Data model for `Item` and `ListEntry` (`src/domain/item.ts`, keys in `src/persistence/keys.ts`)
-- [x] Seed: 68-item draft in `seed/registry.example.json`, loader `npm run seed` (merges, keeps learned aliases)
-- [ ] Seed with the household's real list — **user step**: copy to `seed/registry.local.json`, edit, run
-- [x] Exact-alias resolver: normalise → filler/prefix-aware alias match, no LLM call (R22) — 22 local fixtures
-- [x] LLM fallback resolver: full registry + message → match / ambiguous / unknown / not-a-report
-- [x] Unknown item flow: one-tap buttons (candidates, "➕ new", cancel); confirming writes the alias back
-- [x] Depletion report handler: resolve → mark out → add to list → one-line reply
-- [x] `/list` — grouped by category in shop order, reason per line
-- [x] Persist every inbound message raw alongside its parsed result (R23)
-- [x] Chat allowlist (SSM) + `/chatid`; Ingress IAM tightened to Put/DeleteItem
-- [ ] Deploy + live DoD in the family group — **user steps** below
-
-**User steps to finish phase 1** (Mac, `unset AWS_CA_BUNDLE` first; `git pull` before):
-1. `cp seed/registry.example.json seed/registry.local.json`, edit to what the household buys (keep ids latin, unique aliases), then `AWS_PROFILE=homestock npm run seed -- --dry-run` and `AWS_PROFILE=homestock npm run seed`.
-2. `npm run deploy`.
-3. Create a Telegram group (e.g. "קניות"), add the family and the bot. Send `/chatid` in the group and in the private chat with the bot.
-4. `aws ssm put-parameter --profile homestock --type String --name /homestock/telegram/allowed-chat-ids --value '<group id>,<private chat id>'` (takes effect within 5 min).
-5. In the group: `נגמר חלב` → one-line ✓; `נגמר לנו החלב` → already listed; an unknown item (e.g. `נגמרה הקינואה`) → buttons → ➕ → then the same phrase again resolves without buttons; `/list`.
-6. Check one message in DynamoDB (PK `MSG#2026-11`) has `raw` and `parsed`.
+- [ ] Resolve Q3 (brand vs generic granularity) with the user; record the decision
+- [ ] Resolve Q1 (cold start: seeded category defaults vs longer initial review) with the user
+- [ ] `Purchase` records: item, quantity, source (`list-confirm` | `receipt` | `manual`), timestamp
+- [ ] Post-shopping confirmation flow (R3): open list → bought / not bought → purchases written, list cleared
+- [ ] Receipt ingestion (R1, R2): photo/PDF to S3, extraction, resolve each line, unmatched surfaced for one-tap confirm
+- [ ] Interval learning (R7): rolling days-between-purchases; depletion score = days since purchase / interval
+- [ ] `staple` / `non-cyclic` flags (R8, R9) excluded from or damped in scoring
+- [ ] Backfill intervals from purchase history already present
 
 ---
 
 ## Verification
 
-Phase 1, 2026-10-31 (cloud workspace). Phase 0 results remain valid; see phase log.
+Phase 1, 2026-10-31.
 
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
 | `npm test` | passed — 7 files, 85 tests (22 Hebrew local fixtures, 4 LLM-required, 3 not-a-report, all DoD flows via fakes) |
-| `npx cdk synth` | passed. No VpcConfig; Ingress policy = `PutItem`/`DeleteItem` + invoke + webhook-secret; Worker reads bot token, allowlist, both LLM keys. Worker bundle 25.8 kb, Ingress 3.6 kb |
-| `npm run deploy` | not run — needs the user's Mac |
-| Live DoD in the group | not run — needs deploy, seed, allowlist |
+| `npx cdk synth` | passed. No VpcConfig; Ingress policy = `PutItem`/`DeleteItem` + invoke + webhook-secret. Worker bundle 25.8 kb, Ingress 3.6 kb |
+| `npm run seed` (user's Mac) | passed — 68 items from the example list |
+| `npm run deploy` (user's Mac) | passed |
+| Live, family group: "נגמר החלב" → `✓ חלב — ברשימה` | passed — path `local` |
+| Live: "נגמר לנו החלב" → same item (`חלב כבר ברשימה`) | passed — path `local` |
+| Live: unknown "נגמרו הגרעינים שחורים" → buttons → ➕ → item created; repeat → `כבר ברשימה` | passed — first `llm`, repeat `local` (message log) |
+| Live: `/list` grouped by category with reasons | passed |
+| Live: every inbound retrievable raw with its parse (R23) | passed — `MSG#2026-10` query shows text, intent, path |
 
 ---
 
@@ -153,6 +147,7 @@ Phase 1, 2026-10-31 (cloud workspace). Phase 0 results remain valid; see phase l
 - `setWebhook` subscribes to `message` and `callback_query` only.
 - `resolve-item` default model `claude-haiku-5-5`; OpenAI alternative `gpt-5.4-mini` (used in tests/docs). Override with `npx cdk deploy -c llmRouting='{"resolve-item":{"provider":"openai","model":"…"}}'`.
 - An unknown item with no LLM proposal is offered as a new item in category `household`.
+- Live group is a basic group (id `-55…`, no `-100` prefix). If Telegram converts it to a supergroup the id changes and the bot goes silent until the allowlist is updated (README troubleshooting).
 - Member attribution (R24) is the Telegram user id + first name stored on list rows and in the message log; no separate member table yet.
 - The user's Mac exports `AWS_CA_BUNDLE` (a corporate root CA) for other work; HomeStock commands are run after `unset AWS_CA_BUNDLE` in that terminal. Nothing in the repo depends on this.
 
@@ -176,13 +171,16 @@ Phase 1, 2026-10-31 (cloud workspace). Phase 0 results remain valid; see phase l
 
 | Phase | Title | Commit | Date |
 |---|---|---|---|
-| 0 | Groundwork and plumbing | `d405e0c` (code), closing commit `phase(0): close` | 2026-10-31 |
+| 0 | Groundwork and plumbing | `ae4e27d` | 2026-10-31 |
+| 1 | Depletion reports and the shopping list | `2062f18` (code), closing commit `phase(1): close` | 2026-10-31 |
 
 ---
 
 ## Next phase entry conditions
 
-- Bot replies to a live message — ✔ (`pong`, 2026-10-31)
-- Table and bucket names readable from this file — ✔
-- Q4 decided — ✔ (see Decisions)
-- Anthropic and OpenAI API keys stored in SSM — **open**
+Phase 2 starts only when (plan.md review gate — **if the family isn't using it, stop and diagnose adoption instead**):
+- The family has used the bot for at least two weeks — earliest **2026-11-14**
+- At least 20 real depletion reports in the table. Count with:
+  `aws dynamodb query --profile homestock --table-name homestock --key-condition-expression "PK = :pk" --expression-attribute-values '{":pk":{"S":"MSG#2026-11"}}' --query "length(Items[?parsed.M.intent.S=='report'])"`
+  (repeat for each month; `MSG#2026-10` holds the setup-day tests)
+- Review the message log for misresolutions; add each to `test/fixtures/hebrew-reports.json`

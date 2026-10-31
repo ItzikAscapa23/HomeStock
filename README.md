@@ -9,7 +9,7 @@ Each household runs its **own copy** in its **own AWS account**. There is no sha
 server and no sign-up — you deploy it, you own the data.
 
 > **Status:** early development. Phase 1 — report what ran out, get a shopping list —
-> is built; its live test in a family group is pending. See `plan.md` for the roadmap
+> is live. See `plan.md` for the roadmap
 > and `HANDOVER.md` for current state.
 
 **Cost:** designed to stay under ~$5/month (typically ~$1–3). Everything is
@@ -190,9 +190,11 @@ the seed is safe: it updates items and keeps the aliases the bot has learned.
 3. Allow those chats (the bot ignores every other chat):
    ```bash
    aws ssm put-parameter --profile homestock --type String \
-     --name /homestock/telegram/allowed-chat-ids --value '-100xxxxxxxxxx,123456789'
+     --name /homestock/telegram/allowed-chat-ids --value='-5512345678,123456789'
    ```
-   To change it later add `--overwrite`. Takes effect within 5 minutes.
+   Keep the `=` in `--value=`: group ids start with `-`, and without it the AWS CLI
+   reads the id as an option (*expected one argument*). To change it later add
+   `--overwrite`. Takes effect within 5 minutes.
 
 ### Check it works
 In the group:
@@ -241,6 +243,14 @@ work setup needs it.
 **Region selector is greyed out / locked** in the AWS console. You're on a global
 service page (Billing, IAM, Organizations). Open a regional service first, or use a
 direct link with `?region=eu-central-1`.
+
+**The bot stopped answering in the group** but `/chatid` still works there. Telegram
+may have upgraded the group to a *supergroup* (e.g. after making someone admin), which
+changes its id to `-100…`. Run `/chatid` in the group and update
+`/homestock/telegram/allowed-chat-ids` with `--overwrite`.
+
+**The bot replies "pong"** — the deployed code is older than your checkout. Run
+`npm run deploy`.
 
 **`Token has expired`** / `The SSO session … has expired` — run
 `aws sso login --profile homestock`.

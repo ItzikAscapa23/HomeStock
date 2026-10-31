@@ -59,13 +59,23 @@ export class HomeStockStack extends Stack {
       },
     });
 
+    const llmRouting: unknown = this.node.tryGetContext('llmRouting');
+    if (llmRouting !== undefined && typeof llmRouting !== 'string') {
+      throw new Error('context llmRouting must be a JSON string');
+    }
+
     const worker = new NodejsFunction(this, 'Worker', {
       ...fnDefaults('Worker'),
       entry: src('handlers/worker.ts'),
       memorySize: 512,
       timeout: Duration.seconds(60),
       retryAttempts: 0, // a retry after a successful send would double-reply (R25, R26)
-      environment: { TABLE_NAME: table.tableName, NODE_OPTIONS: '--enable-source-maps' },
+      environment: {
+        TABLE_NAME: table.tableName,
+        NODE_OPTIONS: '--enable-source-maps',
+        // Optional per-task model routing (Q4), e.g. -c llmRouting='{"resolve-item":{"provider":"openai","model":"…"}}'
+        ...(llmRouting && { LLM_ROUTING: llmRouting }),
+      },
     });
     table.grantReadWriteData(worker);
     bucket.grantReadWrite(worker);
@@ -73,7 +83,12 @@ export class HomeStockStack extends Stack {
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: ['ssm:GetParameter'],
-        resources: [paramArn(PARAM_NAMES.botToken)],
+        resources: [
+          PARAM_NAMES.botToken,
+          PARAM_NAMES.allowedChatIds,
+          PARAM_NAMES.anthropicKey,
+          PARAM_NAMES.openaiKey,
+        ].map(paramArn),
       }),
     );
 
@@ -88,7 +103,14 @@ export class HomeStockStack extends Stack {
         NODE_OPTIONS: '--enable-source-maps',
       },
     });
-    table.grantReadWriteData(ingress);
+    // Ingress only claims/releases dedupe markers — no reads, no other writes.
+    ingress.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ['dynamodb:PutItem', 'dynamodb:DeleteItem'],
+        resources: [table.tableArn],
+      }),
+    );
     worker.grantInvoke(ingress);
     ingress.addToRolePolicy(
       new PolicyStatement({

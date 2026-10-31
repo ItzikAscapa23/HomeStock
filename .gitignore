@@ -4,3 +4,6 @@ dist/
 *.log
 .env*
 .DS_Store
+
+# Household-specific data — never committed
+seed/*.local.json

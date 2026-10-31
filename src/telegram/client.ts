@@ -1,5 +1,8 @@
+import type { Button, Reply } from '../domain/message.js';
+
 export interface ChatSender {
-  sendMessage(chatId: number, text: string): Promise<void>;
+  /** Render a domain Reply to the Bot API. */
+  deliver(chatId: number, reply: Reply): Promise<void>;
 }
 
 /** Minimal Bot API client over global fetch — no SDK, keeps the bundle small. */
@@ -9,8 +12,30 @@ export class TelegramClient implements ChatSender {
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
 
-  async sendMessage(chatId: number, text: string): Promise<void> {
-    await this.call('sendMessage', { chat_id: chatId, text });
+  async deliver(chatId: number, reply: Reply): Promise<void> {
+    switch (reply.type) {
+      case 'send':
+        await this.call('sendMessage', {
+          chat_id: chatId,
+          text: reply.text,
+          ...(reply.buttons && { reply_markup: keyboard(reply.buttons) }),
+        });
+        return;
+      case 'edit':
+        await this.call('editMessageText', {
+          chat_id: chatId,
+          message_id: reply.messageId,
+          text: reply.text,
+          reply_markup: keyboard(reply.buttons ?? []),
+        });
+        return;
+      case 'ack':
+        await this.call('answerCallbackQuery', {
+          callback_query_id: reply.callbackId,
+          ...(reply.text && { text: reply.text }),
+        });
+        return;
+    }
   }
 
   private async call(method: string, payload: unknown): Promise<unknown> {
@@ -28,4 +53,8 @@ export class TelegramClient implements ChatSender {
     }
     return body;
   }
+}
+
+function keyboard(rows: Button[][]) {
+  return { inline_keyboard: rows.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))) };
 }

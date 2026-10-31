@@ -1,0 +1,81 @@
+{
+  "_comment": "Example registry. Copy to seed/registry.local.json (git-ignored), edit to match what your household buys, then run `npm run seed`. ids: lowercase latin, never change once seeded. aliases: other ways people write it — the bot also learns aliases as you use it.",
+  "items": [
+    { "id": "milk", "name": "חלב", "category": "dairy", "aliases": ["חלב 3%", "חלב 1%", "קרטון חלב"] },
+    { "id": "eggs", "name": "ביצים", "category": "dairy", "aliases": ["ביצה", "תבנית ביצים"] },
+    { "id": "cottage", "name": "קוטג׳", "category": "dairy", "aliases": ["קוטג", "קוטג'"] },
+    { "id": "white-cheese", "name": "גבינה לבנה", "category": "dairy", "aliases": ["לבנה 5%", "גבינה 5%"] },
+    { "id": "yellow-cheese", "name": "גבינה צהובה", "category": "dairy", "aliases": ["צהובה", "גבינה פרוסה"] },
+    { "id": "yogurt", "name": "יוגורט", "category": "dairy", "aliases": ["יוגורטים", "מעדנים"] },
+    { "id": "butter", "name": "חמאה", "category": "dairy", "aliases": [] },
+    { "id": "sour-cream", "name": "שמנת חמוצה", "category": "dairy", "aliases": [] },
+    { "id": "cream", "name": "שמנת מתוקה", "category": "dairy", "aliases": ["שמנת לבישול"] },
+
+    { "id": "tomatoes", "name": "עגבניות", "category": "produce", "aliases": ["עגבניה", "עגבנייה"] },
+    { "id": "cucumbers", "name": "מלפפונים", "category": "produce", "aliases": ["מלפפון"] },
+    { "id": "onions", "name": "בצל", "category": "produce", "aliases": ["בצלים"] },
+    { "id": "garlic", "name": "שום", "category": "produce", "aliases": [] },
+    { "id": "potatoes", "name": "תפוחי אדמה", "category": "produce", "aliases": ["תפוח אדמה", "תפודים", "תפוא"] },
+    { "id": "carrots", "name": "גזר", "category": "produce", "aliases": [] },
+    { "id": "lemons", "name": "לימונים", "category": "produce", "aliases": ["לימון"] },
+    { "id": "bananas", "name": "בננות", "category": "produce", "aliases": ["בננה"] },
+    { "id": "apples", "name": "תפוחים", "category": "produce", "aliases": ["תפוח", "תפוחי עץ"] },
+    { "id": "peppers", "name": "פלפלים", "category": "produce", "aliases": ["פלפל", "גמבה"] },
+    { "id": "lettuce", "name": "חסה", "category": "produce", "aliases": [] },
+
+    { "id": "bread", "name": "לחם", "category": "bakery", "aliases": ["כיכר לחם", "לחם פרוס"] },
+    { "id": "pita", "name": "פיתות", "category": "bakery", "aliases": ["פיתה"] },
+    { "id": "challah", "name": "חלה", "category": "bakery", "aliases": ["חלות"] },
+
+    { "id": "chicken-breast", "name": "חזה עוף", "category": "meat", "aliases": ["חזה", "שניצל"] },
+    { "id": "chicken-thighs", "name": "פרגיות", "category": "meat", "aliases": ["פרגית"] },
+    { "id": "ground-beef", "name": "בשר טחון", "category": "meat", "aliases": ["טחון"] },
+    { "id": "tuna", "name": "טונה", "category": "pantry", "aliases": ["קופסת טונה"] },
+
+    { "id": "pasta", "name": "פסטה", "category": "pantry", "aliases": ["ספגטי", "פתיתים"] },
+    { "id": "rice", "name": "אורז", "category": "pantry", "aliases": [] },
+    { "id": "flour", "name": "קמח", "category": "pantry", "aliases": [], "staple": true },
+    { "id": "sugar", "name": "סוכר", "category": "pantry", "aliases": [], "staple": true },
+    { "id": "salt", "name": "מלח", "category": "pantry", "aliases": [], "staple": true },
+    { "id": "oil", "name": "שמן", "category": "pantry", "aliases": ["שמן קנולה", "שמן חמניות"], "staple": true },
+    { "id": "olive-oil", "name": "שמן זית", "category": "pantry", "aliases": [], "staple": true },
+    { "id": "tahini", "name": "טחינה", "category": "pantry", "aliases": ["טחינה גולמית"] },
+    { "id": "hummus", "name": "חומוס", "category": "dairy", "aliases": ["סלט חומוס"] },
+    { "id": "ketchup", "name": "קטשופ", "category": "pantry", "aliases": [] },
+    { "id": "cereal", "name": "קורנפלקס", "category": "pantry", "aliases": ["דגני בוקר"] },
+    { "id": "coffee", "name": "קפה", "category": "pantry", "aliases": ["קפה נמס", "קפה טחון", "קפסולות"] },
+    { "id": "tea", "name": "תה", "category": "pantry", "aliases": ["שקיות תה"] },
+    { "id": "honey", "name": "דבש", "category": "pantry", "aliases": [] },
+
+    { "id": "water", "name": "מים", "category": "drinks", "aliases": ["מים מינרליים", "שישייה מים"] },
+    { "id": "juice", "name": "מיץ", "category": "drinks", "aliases": ["מיץ תפוזים"] },
+    { "id": "soda", "name": "סודה", "category": "drinks", "aliases": [] },
+
+    { "id": "frozen-veg", "name": "ירקות קפואים", "category": "frozen", "aliases": ["אפונה קפואה"] },
+    { "id": "schnitzel-frozen", "name": "שניצל תירס", "category": "frozen", "aliases": ["שניצלונים"] },
+
+    { "id": "snacks", "name": "במבה", "category": "snacks", "aliases": [] },
+    { "id": "bissli", "name": "ביסלי", "category": "snacks", "aliases": [] },
+    { "id": "chocolate", "name": "שוקולד", "category": "snacks", "aliases": ["שוקולדים"] },
+
+    { "id": "toilet-paper", "name": "נייר טואלט", "category": "household", "aliases": ["נייר טואלט", "טואלט"] },
+    { "id": "paper-towels", "name": "מגבות נייר", "category": "household", "aliases": ["נייר מטבח", "סופג"] },
+    { "id": "trash-bags", "name": "שקיות זבל", "category": "household", "aliases": ["שקיות אשפה"] },
+    { "id": "aluminium-foil", "name": "נייר כסף", "category": "household", "aliases": ["אלומיניום"], "nonCyclic": true },
+    { "id": "batteries", "name": "סוללות", "category": "household", "aliases": ["בטריות"], "nonCyclic": true },
+
+    { "id": "dish-soap", "name": "סבון כלים", "category": "cleaning", "aliases": ["נוזל כלים", "פיירי"] },
+    { "id": "dishwasher-tabs", "name": "טבליות למדיח", "category": "cleaning", "aliases": ["טבליות מדיח", "קפסולות למדיח"] },
+    { "id": "laundry-detergent", "name": "אבקת כביסה", "category": "cleaning", "aliases": ["ג׳ל כביסה", "נוזל כביסה"] },
+    { "id": "softener", "name": "מרכך כביסה", "category": "cleaning", "aliases": ["מרכך"] },
+    { "id": "bleach", "name": "אקונומיקה", "category": "cleaning", "aliases": [] },
+    { "id": "floor-cleaner", "name": "נוזל רצפה", "category": "cleaning", "aliases": ["סבון רצפה"] },
+    { "id": "sponges", "name": "ספוגים", "category": "cleaning", "aliases": ["ספוג", "ספוגיות"] },
+
+    { "id": "hand-soap", "name": "סבון ידיים", "category": "hygiene", "aliases": ["סבון נוזלי"] },
+    { "id": "shampoo", "name": "שמפו", "category": "hygiene", "aliases": [] },
+    { "id": "toothpaste", "name": "משחת שיניים", "category": "hygiene", "aliases": ["משחה"] },
+    { "id": "deodorant", "name": "דאודורנט", "category": "hygiene", "aliases": ["דיאודורנט"] },
+    { "id": "shower-gel", "name": "סבון גוף", "category": "hygiene", "aliases": ["ג׳ל רחצה", "תחליב רחצה"] }
+  ]
+}

@@ -8,8 +8,9 @@ sure of.
 Each household runs its **own copy** in its **own AWS account**. There is no shared
 server and no sign-up — you deploy it, you own the data.
 
-> **Status:** early development. Phase 0 (plumbing — the bot replies "pong") is done
-> and deployed. See `plan.md` for the roadmap and `HANDOVER.md` for current state.
+> **Status:** early development. Phase 1 — report what ran out, get a shopping list —
+> is built; its live test in a family group is pending. See `plan.md` for the roadmap
+> and `HANDOVER.md` for current state.
 
 **Cost:** designed to stay under ~$5/month (typically ~$1–3). Everything is
 pay-per-use; nothing is billed by the hour. LLM usage (from phase 1) is billed separately
@@ -151,11 +152,56 @@ AWS_PROFILE=homestock npm run webhook
 ```
 It prints `Webhook set: …` and Telegram's webhook info with `"pending_update_count": 0`.
 
-### Check it works
-Search for your bot's username in Telegram, tap **Start**, send anything. It replies
-**pong**.
+---
 
-No reply? Look at the ingress logs:
+## 5. Connect your household
+
+### 5.1 LLM keys
+Unknown or ambiguous items are resolved by an LLM (Anthropic by default; OpenAI also
+supported). Create an API key at console.anthropic.com (and/or platform.openai.com),
+set a low monthly spend limit there, then:
+```bash
+read -s KEY && aws ssm put-parameter --profile homestock --type SecureString \
+  --name /homestock/llm/anthropic-api-key --value "$KEY"; unset KEY
+
+read -s KEY && aws ssm put-parameter --profile homestock --type SecureString \
+  --name /homestock/llm/openai-api-key --value "$KEY"; unset KEY
+```
+Paste the key when the cursor waits — nothing is shown. Keep `"$KEY"` as written.
+
+To use OpenAI instead of Anthropic, deploy with
+`npx cdk deploy --profile homestock -c llmRouting='{"resolve-item":{"provider":"openai","model":"gpt-5.4-mini"}}'`.
+
+### 5.2 Your item list
+The bot matches messages against your household's item list first (free and instant)
+and only asks the LLM about words it doesn't know.
+```bash
+cp seed/registry.example.json seed/registry.local.json
+# edit seed/registry.local.json: remove what you never buy, add what you do
+AWS_PROFILE=homestock npm run seed -- --dry-run
+AWS_PROFILE=homestock npm run seed
+```
+`registry.local.json` is git-ignored — your list never ends up in the repo. Re-running
+the seed is safe: it updates items and keeps the aliases the bot has learned.
+
+### 5.3 The family group
+1. Create a Telegram group just for shopping (e.g. "קניות"), add the family and the bot.
+2. In the group send `/chatid`. Also send `/chatid` in your private chat with the bot.
+3. Allow those chats (the bot ignores every other chat):
+   ```bash
+   aws ssm put-parameter --profile homestock --type String \
+     --name /homestock/telegram/allowed-chat-ids --value '-100xxxxxxxxxx,123456789'
+   ```
+   To change it later add `--overwrite`. Takes effect within 5 minutes.
+
+### Check it works
+In the group:
+- `נגמר חלב` → `✓ חלב — ברשימה`
+- something not on your list, e.g. `נגמרה הקינואה` → buttons → tap **➕ חדש** → next time
+  the same words are understood without asking
+- `/list` → the shopping list by supermarket section
+
+No reply? Look at the logs:
 ```bash
 aws logs tail /aws/lambda/$(aws lambda list-functions --profile homestock \
   --query "Functions[?starts_with(FunctionName,'HomeStock-Ingress')].FunctionName" \
@@ -163,13 +209,17 @@ aws logs tail /aws/lambda/$(aws lambda list-functions --profile homestock \
 ```
 (Same for `HomeStock-Worker`.)
 
-### Updating later
+---
+
+## 6. Updating and removing
+
+### Updating
 ```bash
 git pull && npm ci && npm run deploy
 ```
 The webhook doesn't need re-registering after a deploy.
 
-### Removing it
+### Removing
 `npx cdk destroy --profile homestock` removes everything **except** the DynamoDB table
 and the S3 bucket — those are kept on purpose so a mistake can't delete your history.
 Delete them by hand in the console if you really want them gone.

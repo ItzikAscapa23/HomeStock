@@ -1,0 +1,38 @@
+{
+  "_comment": "Real-style depletion reports → expected item ids, against seed/registry.example.json. `local` cases must resolve with NO LLM call. Add every misresolved real message here (R23 gives you the raw text).",
+  "local": [
+    { "text": "נגמר חלב", "items": ["milk"] },
+    { "text": "נגמר לנו החלב", "items": ["milk"] },
+    { "text": "נגמר קרטון חלב", "items": ["milk"] },
+    { "text": "החלב נגמר", "items": ["milk"] },
+    { "text": "אין חלב", "items": ["milk"] },
+    { "text": "חלב", "items": ["milk"] },
+    { "text": "נגמרו הביצים", "items": ["eggs"] },
+    { "text": "נגמר חלב וביצים", "items": ["milk", "eggs"] },
+    { "text": "חסר נייר טואלט", "items": ["toilet-paper"] },
+    { "text": "נגמר שמן זית", "items": ["olive-oil"] },
+    { "text": "נגמר השמן", "items": ["oil"] },
+    { "text": "אין לנו מלח", "items": ["salt"] },
+    { "text": "נגמרו העגבניות והמלפפונים", "items": ["tomatoes", "cucumbers"] },
+    { "text": "צריך לקנות סבון כלים", "items": ["dish-soap"] },
+    { "text": "נגמר הסבון כלים", "items": ["dish-soap"] },
+    { "text": "נגמר שניצל תירס", "items": ["schnitzel-frozen"] },
+    { "text": "נגמרה הקוטג׳", "items": ["cottage"] },
+    { "text": "נגמר קוטג'", "items": ["cottage"] },
+    { "text": "  נגמר   חלב!!  ", "items": ["milk"] },
+    { "text": "נגמר 2 ליטר חלב", "items": ["milk"] },
+    { "text": "נגמר חלב, ביצים ולחם", "items": ["milk", "eggs", "bread"] },
+    { "text": "בבקשה תקנו במבה", "items": ["snacks"] }
+  ],
+  "needsLlm": [
+    { "text": "נגמר הסבון", "why": "ambiguous — dishes, hands, body or floor" },
+    { "text": "נגמרה הקינואה", "why": "not in the registry" },
+    { "text": "נגמר חלב ושוקולד מריר", "why": "partial — שוקולד מריר leaves 'מריר' unexplained" },
+    { "text": "תודה", "why": "not a report — but only the LLM can tell" }
+  ],
+  "notAReport": [
+    { "text": "נגמר" },
+    { "text": "אין לנו" },
+    { "text": "" }
+  ]
+}

@@ -187,11 +187,12 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     expect(summary.text).toBe(
       [
         '🧾 שופרסל ONLINE · 29/10 — 6 מוצרים',
-        '✓ 2 נרשמו כנקנו · ירדו מהרשימה: חלב 3%, ביצים',
+        '✓ נרשמו כנקנו (2): חלב 3% ×2, ביצים ×2',
+        '🛒 ירדו מהרשימה: חלב 3%, ביצים',
         '➕ 3 מוצרים חדשים:',
         '• מיונז (מזווה)',
-        '• שמנת להקצפה 38% (מוצרי חלב וביצים)',
-        '• עגבניות שרי (פירות וירקות)',
+        '• שמנת להקצפה 38% ×2 (מוצרי חלב וביצים)',
+        '• עגבניות שרי 0.8 ק"ג (פירות וירקות)',
         '❓ 1 לא בטוח — שאלה על כל אחד בהמשך',
       ].join('\n'),
     );
@@ -261,7 +262,12 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     const { replies } = await sendReceipt(s, fileMsg(PRIVATE, attachment('file-B')));
     expect(s.llm.requests).toHaveLength(3); // extraction only
     expect(s.llm.requests[2]!.task).toBe('extract-receipt');
-    expect(replies).toEqual([{ type: 'send', text: '🧾 שופרסל ONLINE · 29/10 — 6 מוצרים\n✓ 6 נרשמו כנקנו' }]);
+    expect(replies).toEqual([
+      {
+        type: 'send',
+        text: '🧾 שופרסל ONLINE · 29/10 — 6 מוצרים\n✓ נרשמו כנקנו (6): חלב 3% ×2, ביצים ×2, מיונז, שמנת להקצפה 38% ×2, קוטג׳, עגבניות שרי 0.8 ק"ג',
+      },
+    ]);
   });
 
   it('the same file sent twice is recorded once', async () => {
@@ -348,6 +354,8 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
     });
     const { replies } = await sendReceipt(s);
     expect(replies[0]!.type === 'send' && replies[0]!.text).toContain('— 2 מוצרים');
+    expect(replies[0]!.type === 'send' && replies[0]!.text).toContain('✓ נרשמו כנקנו (1): משחת שיניים');
+    expect(replies[0]!.type === 'send' && replies[0]!.text).toContain('• קרם גוף ×3 (היגיינה וטיפוח)');
     expect(JSON.parse(s.llm.requests[1]!.user)).toHaveLength(2); // the matcher sees each product once
 
     await s.d.handle(tap('r:p1:y'), {});

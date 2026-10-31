@@ -10,10 +10,11 @@ const COPY = {
   notReceipt: 'זה לא נראה כמו קבלה 🤔',
   unsupported: 'אפשר לשלוח קבלה כקובץ PDF או כתמונה (עד 10MB)',
   header: (store: string | null, day: string, n: number) => `🧾 ${store ? `${store} · ` : ''}${day} — ${n} מוצרים`,
-  matched: (n: number) => `✓ ${n} נרשמו כנקנו`,
-  cleared: (names: string) => ` · ירדו מהרשימה: ${names}`,
+  matched: (n: number, names: string) => `✓ נרשמו כנקנו (${n}): ${names}`,
+  cleared: (names: string) => `🛒 ירדו מהרשימה: ${names}`,
   newHeader: (n: number) => `➕ ${n} מוצרים חדשים:`,
   newLine: (name: string, category: string) => `• ${name} (${isCategoryId(category) ? CATEGORIES[category] : category})`,
+  kg: 'ק"ג',
   ambiguous: (n: number) => `❓ ${n} לא בטוח — שאלה על כל אחד בהמשך`,
   addAll: (n: number) => `✓ הוסף את כל ה-${n}`,
   skipAll: '✕ דלג',
@@ -156,15 +157,22 @@ function summaryText(r: Extract<IngestResult, { status: 'ok' }>): string {
   const [y, m, d] = r.purchasedOn.split('-');
   const parts = [COPY.header(r.store, y ? `${d}/${m}` : r.purchasedOn, r.lineCount)];
   if (r.matched.length > 0) {
+    parts.push(COPY.matched(r.matched.length, r.matched.map((x) => x.item.name + qty(x.line)).join(', ')));
     const cleared = r.clearedFromList.map((i) => i.name).join(', ');
-    parts.push(COPY.matched(r.matched.length) + (cleared ? COPY.cleared(cleared) : ''));
+    if (cleared) parts.push(COPY.cleared(cleared));
   }
   if (r.newLines.length > 0) {
     parts.push(COPY.newHeader(r.newLines.length));
-    for (const n of r.newLines) parts.push(COPY.newLine(n.proposal.name, n.proposal.category));
+    for (const n of r.newLines) parts.push(COPY.newLine(n.proposal.name + qty(n.line), n.proposal.category));
   }
   if (r.ambiguous.length > 0) parts.push(COPY.ambiguous(r.ambiguous.length));
   return clip(parts.join('\n'));
+}
+
+/** " ×3" for several units, " 1.2 ק"ג" for weighed items, nothing for a single unit. */
+function qty(line: { quantity: number; unit: 'unit' | 'kg' }): string {
+  if (line.unit === 'kg') return ` ${Number(line.quantity.toFixed(3))} ${COPY.kg}`;
+  return line.quantity > 1 ? ` ×${Number(line.quantity.toFixed(3))}` : '';
 }
 
 function clip(text: string): string {

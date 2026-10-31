@@ -41,7 +41,7 @@ export class ReceiptLineResolver {
         user: JSON.stringify(rest.map((l) => ({ i: l.index, code: l.code, description: l.description }))),
         schemaName: 'line_matches',
         schema: SCHEMA,
-        maxTokens: 4000,
+        maxTokens: 8000,
         timeoutMs: 60_000,
       },
       validate,

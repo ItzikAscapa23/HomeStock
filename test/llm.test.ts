@@ -23,8 +23,11 @@ function fakeFetch(status: number, body: unknown) {
 }
 
 describe('AnthropicAdapter', () => {
-  it('forces a tool call with the schema, cache-marks the system prompt, returns the tool input', async () => {
-    const { fn, calls } = fakeFetch(200, { content: [{ type: 'tool_use', name: 'resolution', input: { ok: 1 } }] });
+  it('requests native JSON-schema output, cache-marks the system prompt, parses the text block', async () => {
+    const { fn, calls } = fakeFetch(200, {
+      stop_reason: 'end_turn',
+      content: [{ type: 'thinking', thinking: '…' }, { type: 'text', text: '{"ok":1}' }],
+    });
     const out = await new AnthropicAdapter(async () => 'KEY', fn).completeJson('claude-haiku-5-5', req);
     expect(out).toEqual({ ok: 1 });
     const c = calls[0]!;
@@ -35,9 +38,10 @@ describe('AnthropicAdapter', () => {
       max_tokens: 100,
       system: [{ type: 'text', text: 'SYSTEM', cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: 'נגמר חלב' }],
-      tools: [{ name: 'resolution', input_schema: { type: 'object' } }],
-      tool_choice: { type: 'tool', name: 'resolution' },
+      output_config: { format: { type: 'json_schema', schema: { type: 'object' } } },
     });
+    expect(c.body).not.toHaveProperty('tool_choice'); // rejected by Sonnet 5.5 (400)
+    expect(c.body).not.toHaveProperty('tools');
   });
 
   it('surfaces API errors without the key', async () => {
@@ -46,9 +50,12 @@ describe('AnthropicAdapter', () => {
     await expect(p).rejects.toThrow('Anthropic 401: invalid x-api-key');
   });
 
-  it('fails if there is no tool_use block', async () => {
-    const { fn } = fakeFetch(200, { content: [{ type: 'text', text: 'hi' }] });
-    await expect(new AnthropicAdapter(async () => 'K', fn).completeJson('m', req)).rejects.toThrow(/no tool_use/);
+  it('fails loudly on truncated, refused, empty or non-JSON output', async () => {
+    const run = (body: unknown) => new AnthropicAdapter(async () => 'K', fakeFetch(200, body).fn).completeJson('m', req);
+    await expect(run({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"a":' }] })).rejects.toThrow(/truncated/);
+    await expect(run({ stop_reason: 'refusal', content: [] })).rejects.toThrow(/refused/);
+    await expect(run({ stop_reason: 'end_turn', content: [{ type: 'thinking' }] })).rejects.toThrow(/no text block/);
+    await expect(run({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'hi' }] })).rejects.toThrow(/not valid JSON/);
   });
 });
 
@@ -121,7 +128,7 @@ describe('file attachments (receipts)', () => {
   });
 
   it('Anthropic: document block for PDF, image block for photos, then the text', async () => {
-    const ok = { content: [{ type: 'tool_use', name: 'resolution', input: {} }] };
+    const ok = { stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] };
     const pdf = fakeFetch(200, ok);
     await new AnthropicAdapter(async () => 'K', pdf.fn).completeJson('m', withFile('application/pdf'));
     expect(pdf.calls[0]!.body.messages[0].content).toEqual([

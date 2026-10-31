@@ -215,13 +215,16 @@ In the group:
 - `/list` → the shopping list by supermarket section
 - a receipt PDF in the private chat → a summary of what was bought
 
-No reply? Look at the logs:
+No reply, or "לא הצלחתי לעבד…"? Look at the worker's errors (each function has its own
+log group with 7-day retention, so it isn't at `/aws/lambda/<name>`):
 ```bash
-aws logs tail /aws/lambda/$(aws lambda list-functions --profile homestock \
-  --query "Functions[?starts_with(FunctionName,'HomeStock-Ingress')].FunctionName" \
-  --output text) --since 5m --profile homestock
+FN=$(aws lambda list-functions --profile homestock \
+  --query "Functions[?starts_with(FunctionName,'HomeStock-Worker')].FunctionName" --output text)
+LG=$(aws lambda get-function-configuration --function-name "$FN" --profile homestock \
+  --query LoggingConfig.LogGroup --output text)
+aws logs tail "$LG" --since 20m --profile homestock --format short | grep -iE "error|failed|timed out"
 ```
-(Same for `HomeStock-Worker`.)
+Replace `Worker` with `Ingress` for the webhook side.
 
 ---
 

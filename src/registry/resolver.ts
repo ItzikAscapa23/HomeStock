@@ -60,7 +60,7 @@ export class Resolver {
         user: text,
         schemaName: 'resolution',
         schema: RESOLUTION_SCHEMA,
-        maxTokens: 800,
+        maxTokens: 2000,
       },
       validateLlmResolution,
     );

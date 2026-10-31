@@ -23,7 +23,7 @@ export class ReceiptExtractor {
         attachments: [file],
         schemaName: 'receipt',
         schema: SCHEMA,
-        maxTokens: 8000,
+        maxTokens: 16_000, // room for adaptive thinking plus a long receipt
         timeoutMs: 120_000,
       },
       validate,

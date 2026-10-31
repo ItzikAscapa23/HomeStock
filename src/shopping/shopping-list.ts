@@ -47,10 +47,18 @@ export class ShoppingList {
     return this.list.listOpen();
   }
 
-  /** Bought items leave the list (R3 via receipt). Returns the ids that were on it. */
-  async clearBought(itemIds: string[]): Promise<string[]> {
-    const open = new Set((await this.list.listOpen()).map((e) => e.itemId));
-    const cleared = [...new Set(itemIds)].filter((id) => open.has(id));
+  /**
+   * Bought items leave the list (R3 via receipt). Returns the ids that were on it.
+   * Only entries reported on or before the purchase day are cleared: an old receipt must not
+   * undo a depletion report made after that purchase (ground truth, R5).
+   */
+  async clearBought(itemIds: string[], purchasedOn: string): Promise<string[]> {
+    const clearable = new Set(
+      (await this.list.listOpen())
+        .filter((e) => localDay(e.createdAt) <= purchasedOn)
+        .map((e) => e.itemId),
+    );
+    const cleared = [...new Set(itemIds)].filter((id) => clearable.has(id));
     for (const id of cleared) await this.list.remove(id);
     return cleared;
   }
@@ -72,4 +80,9 @@ export function formatList(entries: ListEntry[], itemsById: ReadonlyMap<string, 
     (c) => `${CATEGORIES[c]}:\n${groups.get(c)!.join('\n')}`, // plain text: no parse_mode, nothing to escape
   );
   return `${COPY.title}\n\n${sections.join('\n\n')}`;
+}
+
+/** The household's calendar day (Asia/Jerusalem) of an ISO timestamp, as YYYY-MM-DD — receipts are dated locally. */
+function localDay(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(iso));
 }

@@ -29,7 +29,7 @@ import {
 const EXTRACTION = {
   isReceipt: true,
   store: 'שופרסל ONLINE',
-  purchasedOn: '2026-10-29',
+  purchasedOn: '2026-10-31',
   lines: [
     { code: '4131074', description: "חלב בקרטון 3% שומן 1 ל'", quantity: 2, unit: 'unit' },
     { code: '1201589', description: '12 ביצי משק טריות L', quantity: 2, unit: 'unit' },
@@ -158,8 +158,8 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
   it('records known items as purchases (supplied qty, kg for weighed) and clears them from the list', async () => {
     await sendReceipt(s);
     expect(s.purchases.rows.map((p) => [p.itemId, p.quantity, p.unit, p.purchasedOn, p.source])).toEqual([
-      ['milk', 2, 'unit', '2026-10-29', 'receipt'],
-      ['eggs', 2, 'unit', '2026-10-29', 'receipt'],
+      ['milk', 2, 'unit', '2026-10-31', 'receipt'],
+      ['eggs', 2, 'unit', '2026-10-31', 'receipt'],
     ]);
     expect(s.list.entries.size).toBe(0); // R3 via receipt: bought items leave the list
   });
@@ -186,7 +186,7 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     if (summary?.type !== 'send' || question?.type !== 'send') return;
     expect(summary.text).toBe(
       [
-        '🧾 שופרסל ONLINE · 29/10 — 6 מוצרים',
+        '🧾 שופרסל ONLINE · 31/10 — 6 מוצרים',
         '✓ נרשמו כנקנו (2): חלב 3% ×2, ביצים ×2',
         '🛒 ירדו מהרשימה: חלב 3%, ביצים',
         '➕ 3 מוצרים חדשים:',
@@ -265,7 +265,7 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     expect(replies).toEqual([
       {
         type: 'send',
-        text: '🧾 שופרסל ONLINE · 29/10 — 6 מוצרים\n✓ נרשמו כנקנו (6): חלב 3% ×2, ביצים ×2, מיונז, שמנת להקצפה 38% ×2, קוטג׳, עגבניות שרי 0.8 ק"ג',
+        text: '🧾 שופרסל ONLINE · 31/10 — 6 מוצרים\n✓ נרשמו כנקנו (6): חלב 3% ×2, ביצים ×2, מיונז, שמנת להקצפה 38% ×2, קוטג׳, עגבניות שרי 0.8 ק"ג',
       },
     ]);
   });
@@ -441,5 +441,28 @@ describe('file type is decided by content, not by name or label', () => {
     const { replies } = await sendReceipt(s, fileMsg(PRIVATE, a));
     expect(replies).toEqual([{ type: 'send', text: 'אפשר לשלוח קבלה כקובץ PDF או כתמונה (עד 10MB)' }]);
     expect(s.files.downloads).toHaveLength(0);
+  });
+});
+
+describe('list clearing respects dates (R5)', () => {
+  it('an older receipt does not clear an item reported out after that purchase', async () => {
+    const s = setup();
+    // Reported out on 31/10 (AT); the receipt is from 29/10.
+    await s.d.handle(textMsg('נגמר חלב'), {});
+    s.llm.queue({ ...EXTRACTION, purchasedOn: '2026-10-29' });
+    s.llm.queue(LINE_MATCHES);
+    const { replies } = await sendReceipt(s);
+    expect(s.list.entries.has('milk')).toBe(true);
+    expect(s.purchases.rows.some((p) => p.itemId === 'milk')).toBe(true); // still recorded as a purchase
+    expect(replies[0]!.type === 'send' && replies[0]!.text).not.toContain('ירדו מהרשימה');
+  });
+
+  it('a receipt from the same day or later clears it', async () => {
+    const s = setup();
+    await s.d.handle(textMsg('נגמר חלב'), {});
+    s.llm.queue({ ...EXTRACTION, purchasedOn: '2026-11-01' });
+    s.llm.queue(LINE_MATCHES);
+    await sendReceipt(s);
+    expect(s.list.entries.has('milk')).toBe(false);
   });
 });

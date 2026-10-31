@@ -193,7 +193,7 @@ export class ReceiptService {
       ...(ctx.userId !== undefined && { createdByUserId: ctx.userId }),
     }));
     await this.d.purchases.add(purchases);
-    const clearedIds = new Set(await this.d.shopping.clearBought(rows.map((r) => r.item.id)));
+    const clearedIds = new Set(await this.d.shopping.clearBought(rows.map((r) => r.item.id), ctx.purchasedOn));
     return rows.map((r) => r.item).filter((i, n, all) => clearedIds.has(i.id) && all.indexOf(i) === n);
   }
 }

@@ -112,12 +112,15 @@ describe('telegram files (receipts)', () => {
     expect(m).toMatchObject({ attachment: { kind: 'image', fileId: 'big', fileUniqueId: 'b', mimeType: 'image/jpeg' } });
   });
 
-  it('other documents are not attachments', () => {
+  it('any other document is a "file" — its real type is sniffed after download', () => {
+    // Telegram labels a PDF saved without its .pdf extension as application/octet-stream.
     const m = toInbound({
       update_id: 1,
-      message: { ...base, text: undefined, document: { file_id: 'F', file_unique_id: 'U', mime_type: 'application/zip' } },
+      message: { ...base, document: { file_id: 'F', file_unique_id: 'U', mime_type: 'application/octet-stream', file_name: 'SuperPharm1' } },
     });
-    expect(m && 'attachment' in m).toBe(false);
+    expect(m).toMatchObject({ attachment: { kind: 'file', mimeType: 'application/octet-stream', fileName: 'SuperPharm1' } });
+    const noMime = toInbound({ update_id: 2, message: { ...base, document: { file_id: 'F', file_unique_id: 'U' } } });
+    expect(noMime).toMatchObject({ attachment: { kind: 'file', mimeType: 'application/octet-stream' } });
   });
 
   it('downloads through getFile and the file endpoint, with a size cap', async () => {

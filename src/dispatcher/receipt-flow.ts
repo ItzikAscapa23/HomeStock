@@ -8,6 +8,7 @@ const COPY = {
   reading: '⏳ קורא את הקבלה…',
   duplicate: 'הקבלה הזו כבר נקלטה ✓',
   notReceipt: 'זה לא נראה כמו קבלה 🤔',
+  unsupported: 'אפשר לשלוח קבלה כקובץ PDF או כתמונה (עד 10MB)',
   header: (store: string | null, day: string, n: number) => `🧾 ${store ? `${store} · ` : ''}${day} — ${n} מוצרים`,
   matched: (n: number) => `✓ ${n} נרשמו כנקנו`,
   cleared: (names: string) => ` · ירדו מהרשימה: ${names}`,
@@ -49,6 +50,7 @@ export class ReceiptFlow {
     });
 
     if (result.status === 'duplicate') return [{ intent: 'receipt', status: 'duplicate' }, [{ type: 'send', text: COPY.duplicate }]];
+    if (result.status === 'unsupported-file') return [{ intent: 'receipt', status: 'unsupported-file' }, [{ type: 'send', text: COPY.unsupported }]];
     if (result.status === 'not-a-receipt') return [{ intent: 'receipt', status: 'not-a-receipt' }, [{ type: 'send', text: COPY.notReceipt }]];
 
     const replies: Reply[] = [];

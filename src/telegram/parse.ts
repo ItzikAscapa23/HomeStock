@@ -72,21 +72,22 @@ function toMessage(updateId: number, msg: TgMessage): InboundMessage | undefined
 
 const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-/** A PDF document, an image sent as a file, or a photo (largest size). Anything else: none. */
+/**
+ * Any document (its real type is sniffed later — a PDF saved without an extension arrives as
+ * application/octet-stream), or a photo (largest size).
+ */
 function attachmentOf(msg: TgMessage): Attachment | undefined {
   const doc = msg.document;
   if (doc?.file_id && doc.file_unique_id) {
-    const mime = doc.mime_type ?? '';
-    if (mime === 'application/pdf' || IMAGE_MIME.has(mime)) {
-      return {
-        kind: mime === 'application/pdf' ? 'pdf' : 'image',
-        fileId: doc.file_id,
-        fileUniqueId: doc.file_unique_id,
-        mimeType: mime as Attachment['mimeType'],
-        sizeBytes: doc.file_size,
-      };
-    }
-    return undefined;
+    const mime = doc.mime_type ?? 'application/octet-stream';
+    return {
+      kind: mime === 'application/pdf' ? 'pdf' : IMAGE_MIME.has(mime) ? 'image' : 'file',
+      fileId: doc.file_id,
+      fileUniqueId: doc.file_unique_id,
+      mimeType: mime,
+      ...(doc.file_name && { fileName: doc.file_name }),
+      sizeBytes: doc.file_size,
+    };
   }
   const largest = [...(msg.photo ?? [])]
     .filter((p) => p.file_id && p.file_unique_id)

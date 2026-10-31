@@ -150,6 +150,6 @@ export class FakeFiles implements FileSource {
   readonly downloads: string[] = [];
   async download(fileId: string) {
     this.downloads.push(fileId);
-    return new TextEncoder().encode(`%PDF fake ${fileId}`);
+    return new TextEncoder().encode(`%PDF-1.7 fake ${fileId}`);
   }
 }

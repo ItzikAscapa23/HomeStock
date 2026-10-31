@@ -114,9 +114,11 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
-| `npm test` | passed — 8 files, 114 tests (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
+| `npm test` | passed — 8 files, 118 tests (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
 | `npx cdk synth` | passed. No VpcConfig. Worker 180 s / 1024 MB, env adds `BUCKET_NAME`; worker bundle 45.8 kb, ingress 3.7 kb |
-| Live receipt #1 (Shufersal PDF) | **failed** — `Anthropic 400: tool_choice … not supported for this model` (Sonnet 5.5). Fixed by switching to `output_config.format`; awaiting re-test |
+| Live receipt #1 (Shufersal PDF) | first try **failed** (`Anthropic 400: tool_choice … not supported`, Sonnet 5.5) → fixed (`output_config.format`) → **passed**: 31 new items added in one tap, 4 ambiguous lines answered |
+| Live receipt #2 (Super-Pharm, file saved without `.pdf`) | **silent** — declared `application/octet-stream`, parser only took pdf/image MIME → fixed: any document accepted in the private chat, type sniffed from bytes, unreadable files get a one-line reply; awaiting re-test |
+| Live receipt #3 (Osher Ad) | not yet sent |
 | `npm run deploy` / live receipt | not run — needs the user's Mac |
 
 ---
@@ -152,6 +154,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **Receipt lines are merged before matching** — same code (or, without a code, same description) and same unit → one line, quantities summed. Real receipts print one product on several lines (Super-Pharm: one line per unit; Osher Ad: one per promo pair); unmerged, "add all" would create duplicate items.
 - **Receipt layouts checked so far** (user-supplied samples, never committed): Shufersal Online delivery note (4 pp., ordered vs supplied, negative promo lines, substitutions); Osher Ad via Pairzon (narrow thermal, **broken PDF text layer** — only the rendered page is readable, descriptions wrap across pages, price-less promo lines, kg produce, short internal codes); Super-Pharm tax invoice (one line per unit, card-payment line). The broken text layer is why the file goes to the model rather than text extraction.
 - **Anthropic structured output = `output_config.format` (json_schema), not a forced tool call.** First live receipt failed: Sonnet 5.5 returns 400 for `tool_choice: tool/any` (migration guide, "forced tool use"). Native JSON-schema output works on Haiku 5.5 and Sonnet 5.5; JSON comes back in the text block (after any thinking block). `max_tokens` raised (receipt 16k, lines 8k, resolve 2k) because adaptive thinking spends from the same budget; truncation/refusal now fail loudly. Schemas stay within the documented limits (no min/max, ≤16 anyOf/type-array params).
+- **Receipt file type is sniffed from content** (`%PDF-`, JPEG/PNG/WebP magic bytes), never trusted from Telegram's MIME label or the file name. Any document in the private chat is a receipt candidate; anything unreadable or > 10 MB gets one line ("PDF or photo, up to 10MB") instead of silence.
 - **Item codes / barcodes are stored on items** (`codes`) and are the first resolution step for receipt lines — exact, language-free, local (R22).
 - **Q4 — LLM layer (user decision, 2026-10-31):** one domain interface in `src/llm/` (`complete<T>({ task, system, user, schema })` → typed JSON); callers name a *task*, never a model. **Two provider adapters from the start: Anthropic and OpenAI.** A routing config maps task → `{ provider, model }`, passed to the worker as an env var from CDK context — switching provider/model is a config change + deploy. Keys in SSM: `/homestock/llm/anthropic-api-key`, `/homestock/llm/openai-api-key`. No LangChain / Vercel AI SDK: bundle size, and they hide structured output, prompt caching and vision. A Hebrew fixture set (real messages → expected item) gates any routing change.
 
@@ -175,6 +178,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 ## Open questions / blockers
 
 - **Partial reports (R6) before phase 3.** "נשאר מעט חלב" / "כמעט נגמר" currently lists the item as `out`, because R6's weaker signal is phase 3 work. Not a PRD contradiction (R6 is scheduled later) but a known gap — the user should know the bot treats "almost out" as out for now.
+- **Receipt links** (e.g. Super-Pharm's weezmo.com digital-receipt URL arriving by SMS) aren't supported — the user must download and send the file. Proposed: fetch https links to known receipt hosts in the private chat. Not built; user's call.
 - **No undo for a wrong learned alias or item code** — see Decisions. Revisit if it happens in practice.
 - **Receipt purchases ≠ interval learning yet.** Purchases are recorded from now on; using them (R7) is phase 2, still behind the review gate.
 - **Worker `retryAttempts: 0`** still stands; processing is not yet idempotent per `update_id` (ingress dedupe covers Telegram retries).

@@ -152,7 +152,7 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     const req = s.llm.requests[0]!;
     expect(req.task).toBe('extract-receipt');
     expect(req.attachments?.[0]?.mediaType).toBe('application/pdf');
-    expect(Buffer.from(req.attachments![0]!.base64, 'base64').toString()).toBe('%PDF fake id-file-A');
+    expect(Buffer.from(req.attachments![0]!.base64, 'base64').toString()).toBe('%PDF-1.7 fake id-file-A');
   });
 
   it('records known items as purchases (supplied qty, kg for weighed) and clears them from the list', async () => {
@@ -390,5 +390,48 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
       expect(system).toContain('כאל');
       expect(system).toContain('Super-Pharm');
     });
+  });
+});
+
+describe('file type is decided by content, not by name or label', () => {
+  it('sniffs PDF, JPEG, PNG and WebP; rejects anything else', async () => {
+    const { sniffMime } = await import('../src/receipts/receipt-service.js');
+    const b = (...xs: number[]) => new Uint8Array(xs);
+    const s = (t: string) => new TextEncoder().encode(t);
+    expect(sniffMime(s('%PDF-1.7\n…'))).toBe('application/pdf');
+    expect(sniffMime(s('\n\n  %PDF-1.4'))).toBe('application/pdf');
+    expect(sniffMime(b(0xff, 0xd8, 0xff, 0xe0))).toBe('image/jpeg');
+    expect(sniffMime(b(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))).toBe('image/png');
+    expect(sniffMime(s('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp');
+    expect(sniffMime(s('PK\u0003\u0004zip'))).toBeUndefined();
+    expect(sniffMime(s('<html>'))).toBeUndefined();
+  });
+
+  it('a PDF sent without its .pdf extension is read as a PDF', async () => {
+    const s = setup();
+    s.llm.queue(EXTRACTION);
+    s.llm.queue(LINE_MATCHES);
+    const a: Attachment = { kind: 'file', fileId: 'id-x', fileUniqueId: 'x', mimeType: 'application/octet-stream', fileName: 'SuperPharm1', sizeBytes: 172_000 };
+    const { replies } = await sendReceipt(s, fileMsg(PRIVATE, a));
+    expect(s.llm.requests[0]!.attachments?.[0]?.mediaType).toBe('application/pdf');
+    expect(replies[0]!.type === 'send' && replies[0]!.text.startsWith('🧾')).toBe(true);
+  });
+
+  it('an unreadable file gets a one-line explanation, not silence — and can be re-sent', async () => {
+    const s = setup();
+    s.files.download = async () => new TextEncoder().encode('PK\u0003\u0004 a zip');
+    const a: Attachment = { kind: 'file', fileId: 'id-z', fileUniqueId: 'z', mimeType: 'application/zip', sizeBytes: 1000 };
+    const { replies } = await sendReceipt(s, fileMsg(PRIVATE, a));
+    expect(replies).toEqual([{ type: 'send', text: 'אפשר לשלוח קבלה כקובץ PDF או כתמונה (עד 10MB)' }]);
+    expect(s.llm.requests).toHaveLength(0);
+    expect(s.receiptStore.records.size).toBe(0);
+  });
+
+  it('a file declared over 10 MB is refused before downloading', async () => {
+    const s = setup();
+    const a: Attachment = { ...attachment('big'), sizeBytes: 11 * 1024 * 1024 };
+    const { replies } = await sendReceipt(s, fileMsg(PRIVATE, a));
+    expect(replies).toEqual([{ type: 'send', text: 'אפשר לשלוח קבלה כקובץ PDF או כתמונה (עד 10MB)' }]);
+    expect(s.files.downloads).toHaveLength(0);
   });
 });

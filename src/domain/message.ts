@@ -17,13 +17,19 @@ export interface InboundMessage {
   receivedAt: Date;
 }
 
+export type ReceiptMime = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+
 export interface Attachment {
-  kind: 'pdf' | 'image';
+  /** What Telegram says it is. 'file' = a document with another or no MIME type (e.g. a PDF saved without
+   *  its .pdf extension) — the real type is sniffed from the bytes after download. */
+  kind: 'pdf' | 'image' | 'file';
   /** Opaque handle for downloading. */
   fileId: string;
   /** Stable across re-sends of the same file — used to detect a duplicate receipt. */
   fileUniqueId: string;
-  mimeType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  /** Declared MIME type; not trusted — receipts are sniffed. */
+  mimeType: string;
+  fileName?: string;
   sizeBytes: number | undefined;
 }
 

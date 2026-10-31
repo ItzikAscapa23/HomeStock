@@ -1,7 +1,7 @@
 import type { CategoryId } from '../domain/categories.js';
 import { isCategoryId } from '../domain/categories.js';
 import type { Item, Purchase, ReceiptLine } from '../domain/item.js';
-import type { Attachment } from '../domain/message.js';
+import type { Attachment, ReceiptMime } from '../domain/message.js';
 import type { ReceiptFiles } from '../persistence/receipt-files.js';
 import type { PurchaseStore, ReceiptStore } from '../persistence/stores.js';
 import type { ItemRegistry } from '../registry/item-registry.js';
@@ -19,6 +19,8 @@ export interface Proposal {
 
 export type IngestResult =
   | { status: 'duplicate' }
+  /** Not a PDF or an image (by content) — or too big. */
+  | { status: 'unsupported-file' }
   | { status: 'not-a-receipt' }
   | {
       status: 'ok';
@@ -55,6 +57,7 @@ export class ReceiptService {
   async ingest(input: { attachment: Attachment; chatId: number; userId?: number; receivedAt: Date }): Promise<IngestResult> {
     const { attachment, chatId, userId, receivedAt } = input;
     const receiptId = attachment.fileUniqueId;
+    if ((attachment.sizeBytes ?? 0) > MAX_RECEIPT_BYTES) return { status: 'unsupported-file' };
 
     // Duplicate guard: the same file sent twice is recorded once.
     const fresh = await this.d.receipts.claim({ receiptId, chatId, receivedAt: receivedAt.toISOString(), status: 'processing' });
@@ -62,9 +65,14 @@ export class ReceiptService {
 
     try {
       const bytes = await this.d.files.download(attachment.fileId, MAX_RECEIPT_BYTES);
-      const fileKey = await this.d.storage.put({ receiptId, receivedAt, bytes, mimeType: attachment.mimeType });
+      const mimeType = sniffMime(bytes); // the declared type and file name aren't trusted
+      if (!mimeType) {
+        await this.d.receipts.release(receiptId);
+        return { status: 'unsupported-file' };
+      }
+      const fileKey = await this.d.storage.put({ receiptId, receivedAt, bytes, mimeType });
       const extracted = await this.d.extractor.extract({
-        mediaType: attachment.mimeType,
+        mediaType: mimeType,
         base64: Buffer.from(bytes).toString('base64'),
       });
 
@@ -188,4 +196,16 @@ export class ReceiptService {
     const clearedIds = new Set(await this.d.shopping.clearBought(rows.map((r) => r.item.id)));
     return rows.map((r) => r.item).filter((i, n, all) => clearedIds.has(i.id) && all.indexOf(i) === n);
   }
+}
+
+/** Identifies a receipt file by its first bytes. undefined = not something the model can read. */
+export function sniffMime(bytes: Uint8Array): ReceiptMime | undefined {
+  const head = (n: number) => [...bytes.subarray(0, n)];
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  // PDFs may have a little junk before the header; the spec allows it within the first 1024 bytes.
+  if (ascii(0, Math.min(bytes.length, 1024)).includes('%PDF-')) return 'application/pdf';
+  if (head(3).join() === '255,216,255') return 'image/jpeg';
+  if (head(8).join() === '137,80,78,71,13,10,26,10') return 'image/png';
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'image/webp';
+  return undefined;
 }

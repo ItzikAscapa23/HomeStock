@@ -76,7 +76,7 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 ## Status
 
 - **Current phase:** 1.5 — Receipt ingestion (amendment, see Decisions)
-- **State:** `in-progress`
+- **State:** `complete`
 - **Phase 1:** `complete` — review gate (two weeks of family use) still applies to the predictive phases (2's interval learning, 3)
 - **Last updated:** 2026-10-31
 
@@ -84,26 +84,16 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 
 ## Current phase progress
 
-*Phase 1.5 — Receipt ingestion. User-approved amendment (2026-10-31); not in plan.md. Pulls R1, R2, the `Purchase` record and receipt-driven list clearing forward from phase 2. Interval learning, scoring, staple/non-cyclic handling stay in phase 2 behind the review gate.*
+*Phase 2 — Stock in and interval learning. **Not started — blocked by the phase 1 review gate.** Items already delivered by phase 1.5 are marked; the rest is the remaining scope.*
 
-- [x] Record amendment and decisions (Q3, privacy, private chat, bulk confirm); normalisation keeps percentages so variant names don't collide; example registry follows Q3
-- [x] Telegram: accept PDF documents and photos; download via getFile; store original in S3
-- [x] LLM: file attachments for Anthropic and OpenAI; `extract-receipt` (Sonnet) and `resolve-receipt-lines` (Haiku) tasks
-- [x] Extraction → lines (supplied qty, promo/discount lines skipped, kg for weighed items) — `src/receipts/extractor.ts`
-- [x] Line resolution: item code (exact, local) → batch LLM with full registry → new / ambiguous — `src/receipts/line-resolver.ts`
-- [x] `Purchase` records (source `receipt`); purchased items leave the open list
-- [x] Duplicate receipt guard (same file twice → recorded once; failures and non-receipts release the claim)
-- [x] Confirm UX: progress line, one summary with "✓ add all new", per-line questions only for ambiguous lines — `src/dispatcher/receipt-flow.ts`
-- [x] Tests (synthetic receipt modeled on a real Shufersal Online delivery note — the real one has personal data and never enters the repo), synth
-- [ ] Deploy + live check — **user steps** below
-
-**User steps to finish phase 1.5** (Mac; `unset AWS_CA_BUNDLE`; `git pull && npm ci` first):
-1. Optional: in `seed/registry.local.json` rename the milk item to `"name": "חלב 3%"` keeping `"חלב"` in aliases (Q3 default), then `AWS_PROFILE=homestock npm run seed`.
-2. `npm run deploy`.
-3. In the **private chat** with the bot, send the Shufersal PDF. Expect ⏳, then a summary + "✓ add all" and maybe a question or two. Tap them.
-4. Send the same PDF again → "הקבלה הזו כבר נקלטה ✓".
-5. Report "נגמר מיונז" in the group → resolves locally (item came from the receipt). `/list` no longer shows items the receipt bought.
-6. Optional: send a photo of a paper receipt.
+- [x] Resolve Q3 (brand vs generic) — decided in phase 1.5 (variant-level, generic word → usual variant)
+- [ ] Resolve Q1 (cold start: seeded category defaults vs longer initial review) with the user
+- [x] `Purchase` records — built in phase 1.5 (source `receipt`; `list-confirm` / `manual` not yet written)
+- [ ] Post-shopping confirmation flow (R3) from the open list — partly covered: receipts already clear bought items
+- [x] Receipt ingestion (R1, R2) — phase 1.5
+- [ ] Interval learning (R7): rolling days-between-purchases; depletion score = days since purchase / interval
+- [ ] `staple` / `non-cyclic` flags (R8, R9) excluded from or damped in scoring
+- [ ] Backfill intervals from purchase history already present (receipts recorded since 2026-10-31, incl. an April receipt)
 
 ---
 
@@ -119,8 +109,8 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Live receipt #1 (Shufersal PDF) | first try **failed** (`Anthropic 400: tool_choice … not supported`, Sonnet 5.5) → fixed (`output_config.format`) → **passed**: 31 new items added in one tap, 4 ambiguous lines answered |
 | Live receipt #2 (Super-Pharm, file saved without `.pdf`) | first try **silent** (declared `application/octet-stream`) → fixed (bytes sniffed) → **passed**: 4 products (3 body-cream lines merged), 2 matched, 2 new. User feedback: summary hid matched names and all quantities → summary now names every product with ×qty / kg |
 | Live receipt #3 (Osher Ad, broken text layer) | **passed**: 46 products → 23 matched, 17 new (one tap), 6 asked; kg produce, ×N quantities, page-split description joined, no promo lines leaked |
-| Bug found live | receipts cleared list entries regardless of date — the 29/10 Shufersal receipt could clear milk reported out on 31/10. Fixed: only entries reported on/before the purchase day (Asia/Jerusalem) are cleared. Needs deploy; check `/list` and re-report milk if it vanished |
-| Duplicate re-send | not yet checked live (unit-tested) |
+| Bug found live | receipts cleared list entries regardless of date (29/10 receipt cleared milk reported 31/10). Fixed + deployed; milk re-reported; re-sending the receipt no longer touches it — **passed** |
+| Duplicate re-send | **passed** — "הקבלה הזו כבר נקלטה ✓" |
 | `npm run deploy` / live receipt | not run — needs the user's Mac |
 
 ---
@@ -204,7 +194,8 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Phase | Title | Commit | Date |
 |---|---|---|---|
 | 0 | Groundwork and plumbing | `ae4e27d` | 2026-10-31 |
-| 1 | Depletion reports and the shopping list | `2062f18` (code), closing commit `phase(1): close` | 2026-10-31 |
+| 1 | Depletion reports and the shopping list | `7cfa92f` | 2026-10-31 |
+| 1.5 | Receipt ingestion (amendment) | `b77e77c` … `1353beb`, closing commit `phase(1.5): close` | 2026-10-31 |
 
 ---
 
@@ -214,5 +205,6 @@ Phase 2 starts only when (plan.md review gate — **if the family isn't using it
 - The family has used the bot for at least two weeks — earliest **2026-11-14**
 - At least 20 real depletion reports in the table. Count with:
   `aws dynamodb query --profile homestock --table-name homestock --key-condition-expression "PK = :pk" --expression-attribute-values '{":pk":{"S":"MSG#2026-11"}}' --query "length(Items[?parsed.M.intent.S=='report'])"`
-  (repeat for each month; `MSG#2026-10` holds the setup-day tests)
+  (repeat per month; `MSG#2026-10` holds the setup-day tests)
+- Plan.md's own phase 2 exit needs ≥15 items with a learned interval — receipts are the fastest way there; keep sending them
 - Review the message log for misresolutions; add each to `test/fixtures/hebrew-reports.json`

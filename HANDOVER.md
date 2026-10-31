@@ -15,15 +15,19 @@ npm. AWS CDK v2 (`aws-cdk-lib` 2.275, CLI 2.1147). Lambdas bundled by esbuild vi
 runtime provides it). Tests: vitest. TypeScript 7 (`tsc` only typechecks; no emit).
 No framework (see CLAUDE.md).
 
-**AWS resources (stack `HomeStock`, account/region from the `homestock` profile):**
+**Deployed environment:** account `671292827773`, region `eu-central-1`, AWS profile
+`homestock` (IAM Identity Center SSO, `AdministratorAccess`). CDK bootstrapped.
+
 | Resource | Name |
 |---|---|
+| CloudFormation stack | `HomeStock` |
 | DynamoDB table | `homestock` (PK/SK strings, TTL attr `ttl`, on-demand, PITR on, RETAIN) |
-| S3 bucket | `homestock-receipts-<account-id>` (private, SSE-S3, RETAIN) |
-| HTTP API route | `POST /telegram` → stack output `WebhookUrl` |
-| Lambdas | `Ingress` (256 MB, 10 s), `Worker` (512 MB, 60 s, async retries 0) |
+| S3 bucket | `homestock-receipts-671292827773` (private, SSE-S3, RETAIN) |
+| Webhook URL | `https://85r4hqb7z4.execute-api.eu-central-1.amazonaws.com/telegram` |
+| Lambdas | `HomeStock-Ingress…` (256 MB, 10 s), `HomeStock-Worker…` (512 MB, 60 s, async retries 0) |
 | Log groups | one per Lambda, 7-day retention |
 | SSM (manual, SecureString) | `/homestock/telegram/bot-token`, `/homestock/telegram/webhook-secret` |
+| Telegram bot | display name "ניהול המלאי של אסקפה"; group privacy **disabled** |
 
 **Commands:**
 | Purpose | Command |
@@ -35,7 +39,13 @@ No framework (see CLAUDE.md).
 | Diff | `npm run diff` |
 | Deploy | `npm run deploy` (diff then deploy, `--profile homestock`) |
 | Webhook (once) | `AWS_PROFILE=homestock npm run webhook` |
+| SSO login | `aws sso login --profile homestock` |
 | Lint | none configured |
+
+**Where work happens:** code is written and verified in the cloud workspace, pushed to
+GitHub (`ItzikAscapa23/HomeStock`, `main`); the user pulls into
+`/Users/itzhak/myProjects/homeStock` and deploys from there. Deploys need AWS creds,
+which exist only on the user's Mac.
 
 **Key directories:**
 - `infra/` — CDK app (`bin/app.ts`) and `homestock-stack.ts`
@@ -49,6 +59,7 @@ No framework (see CLAUDE.md).
 - `src/config/params.ts` — SSM parameter names + cached reader
 - `scripts/set-webhook.ts` — one-time webhook registration, not part of deploy
 - `test/` — vitest unit tests, fakes only
+- `README.md` — end-user setup guide (AWS, Telegram, deploy). Keep it in step with reality.
 
 **Conventions:** as CLAUDE.md. Relative imports carry `.js` extensions (NodeNext).
 Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default format).
@@ -58,77 +69,71 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 ## Status
 
 - **Current phase:** 0 — Groundwork and plumbing
-- **State:** `in-progress` — code done and verified; only the user's AWS/Telegram steps remain
+- **State:** `complete`
 - **Last updated:** 2026-10-31
 
 ---
 
 ## Current phase progress
 
-- [x] Initialise repo: TypeScript, CDK v2, esbuild via `NodejsFunction`, npm scripts
-- [ ] Create the bot with BotFather; store token in SSM — **user step**, see below
-- [x] CDK stack: HTTP API, ingress + worker Lambdas, DynamoDB, S3, 7-day log retention
-- [x] `removalPolicy: RETAIN` on table and bucket
-- [x] Ingress Lambda: secret token, dedupe on `update_id`, 200 fast, async-invoke worker
-- [x] Worker Lambda: reply "pong"
-- [x] `scripts/set-webhook.ts`
-- [x] Record stack, commands, layout, conventions
-- [ ] `npm run deploy` succeeds — **user step (laptop)**
-- [ ] Live: private-chat message gets "pong" — **user step**
-- [ ] Live: same `update_id` twice → one reply — covered by unit test; live check optional
+*Phase 1 — Depletion reports and the shopping list. Not started.*
 
-**User steps to finish phase 0** (needs AWS creds — can't run from the cloud workspace):
-1. BotFather: `/newbot`; then `/setprivacy` → **Disable** (otherwise the bot sees only commands in groups and phase 1's "נגמר חלב" never arrives).
-2. `aws ssm put-parameter --profile homestock --type SecureString --name /homestock/telegram/bot-token --value '<token>'`
-3. `aws ssm put-parameter --profile homestock --type SecureString --name /homestock/telegram/webhook-secret --value "$(openssl rand -hex 32)"`
-4. `npx cdk bootstrap --profile homestock` (first time per account/region only)
-5. `npm ci && npm run deploy`, then `AWS_PROFILE=homestock npm run webhook`
-6. Message the bot privately → expect `pong`.
+- [ ] Data model for `Item` (canonical name, category, aliases, flags) and `ListEntry` (item, reason, created_at, resolved_at)
+- [ ] Seed the registry with ~50 items the household actually buys
+- [ ] Exact-alias resolver: normalise Hebrew prefixes and whitespace, match locally, no LLM call (R22)
+- [ ] LLM fallback resolver: full registry + message → canonical match or `unknown`
+- [ ] Unknown item flow: "add as new item?" one-tap confirm; confirming writes the alias back
+- [ ] Depletion report handler: resolve → mark out → add to list → one-line reply
+- [ ] `/list` — grouped by category, each line annotated with its reason
+- [ ] Persist every inbound message raw alongside its parsed result (R23)
 
 ---
 
 ## Verification
 
-Run 2026-10-31 in the cloud workspace (no AWS credentials).
+Phase 0, 2026-10-31.
 
-| Command | Result |
+| Command / check | Result |
 |---|---|
-| `npm ci` | passed (exit 0) |
-| `npm run build` | passed (exit 0) |
+| `npm ci` | passed (cloud workspace and user's Mac) |
+| `npm run build` | passed |
 | `npm test` | passed — 3 files, 10 tests |
-| `npx cdk synth` | passed (exit 0). Template checked: 2 Lambdas, no VpcConfig; 2 log groups at 7 d; table + bucket `DeletionPolicy: Retain`; no custom resources |
-| `npm run deploy` | not run — no AWS credentials here |
-| Live reply / live dedupe | not run — needs deploy |
+| `npx cdk synth` | passed. 2 Lambdas without VpcConfig; 2 log groups at 7 d; table + bucket `DeletionPolicy: Retain`; no custom resources |
+| `npm run deploy` (user's Mac) | passed — stack created in 75 s |
+| `npm run webhook` | passed — `pending_update_count: 0`, no `last_error_message` |
+| Live: private chat `/start` → `pong` | passed |
+| Same `update_id` twice → one reply | passed in unit tests (`webhook.test.ts`, `dedupe-store.test.ts`); not replayed live |
 
 ---
 
 ## Decisions
 
-- **Dedupe = DynamoDB conditional put** on `UPDATE#<id>` with a 7-day TTL — atomic, no extra service, cents/month. R26
-- **On worker-invoke failure, ingress releases the dedupe claim and returns 500** — so Telegram's retry is processed instead of silently dropped. Bad secret → 401; malformed body → 200 (a retry can't fix it).
-- **Worker async `retryAttempts: 0`** — a Lambda retry after a successful `sendMessage` would double-reply. Cost: a transient Telegram failure drops that reply. Revisit when the worker writes state (phase 1) by making processing idempotent on `update_id`.
+- **Dedupe = DynamoDB conditional put** on `UPDATE#<id>` with a 7-day TTL — atomic, no extra service. R26
+- **On worker-invoke failure, ingress releases the dedupe claim and returns 500** so Telegram's retry is processed. Bad secret → 401; malformed body → 200 (a retry can't fix it).
+- **Worker async `retryAttempts: 0`** — a retry after a successful `sendMessage` would double-reply. Cost: a transient Telegram failure drops that reply. Revisit in phase 1 by making processing idempotent on `update_id`.
 - **Explicit `LogGroup` per function instead of `logRetention`** — `logRetention` adds a custom-resource Lambda with its own un-retained log group.
-- **Secrets read from SSM at runtime, cached per container** — CloudFormation can't inject SecureString into Lambda env. Default `aws/ssm` key, so no KMS cost or policy.
-- **Fixed table name `homestock` and bucket `homestock-receipts-<account>`** — so names are known before deploy (phase 1 entry condition) and single-env (C6) makes collisions a non-issue.
-- **DynamoDB PITR enabled** — usage-priced (pennies at this size), not a fixed charge; protects purchase history. Turn off if unwanted.
-- **arm64 + ESM bundles** — cheaper per ms, smaller cold start.
-- **Telegram client is raw `fetch`**, no bot SDK — bundle size.
-- **`src/dispatcher/` and `src/domain/`** added (not in CLAUDE.md layout) — needed a home for reply logic and for domain types shared by `telegram/` and services.
+- **Secrets read from SSM at runtime, cached per container** — CloudFormation can't inject SecureString into Lambda env. Default `aws/ssm` key, no KMS cost.
+- **Fixed table name `homestock`, bucket `homestock-receipts-<account>`** — names known before deploy; single env (C6).
+- **DynamoDB PITR enabled** — usage-priced (pennies), protects purchase history.
+- **arm64 + ESM bundles**; **raw `fetch` Telegram client** — cold start and bundle size.
+- **`src/dispatcher/` and `src/domain/`** added beyond CLAUDE.md's layout — homes for reply logic and shared domain types.
+- **Region `eu-central-1`** — close to Israel, full service set incl. Bedrock if chosen for Q4. `il-central-1` rejected for thinner service/model availability.
+- **IAM Identity Center, Single-Region instance (AWS-owned key)** — Multi-Region default creates a customer-managed KMS key, a fixed ~$1+/month charge.
+- **Each household self-hosts its own copy** in its own AWS account (user wants friends to be able to reuse the project). Compatible with N1 — no multi-tenancy. Consequence: **household-specific data (seed registry, R20 household context) must never be committed** — keep it in a git-ignored local file or enter it through the bot. Repo stays public.
 
 ---
 
 ## Assumptions
 
-- Region is whatever the `homestock` profile sets. If the LLM will be Bedrock, check model availability in that region before phase 1 (affects Q4).
-- `setWebhook` subscribes to `message` and `callback_query` only (callbacks needed from phase 1's one-tap confirm).
-- Repo `ItzikAscapa23/HomeStock` is **public**. Fine for code; but phase 1's seed registry and R20 household context (allergies, kids) would be public too. Recommend making it private before phase 1.
+- `setWebhook` subscribes to `message` and `callback_query` only.
+- The user's Mac exports `AWS_CA_BUNDLE` (a corporate root CA) for other work; HomeStock commands are run after `unset AWS_CA_BUNDLE` in that terminal. Nothing in the repo depends on this.
 
 ---
 
 ## Open questions / blockers
 
-- User steps above — unblocks phase 0 completion.
-- Q4 (model routing / LLM provider) — needed before phase 1's LLM fallback resolver. User decides.
+- **Q4 — LLM provider / model routing.** Blocks phase 1's LLM fallback resolver. User decides; its API key goes in SSM.
+- **Tighten Ingress IAM** — it has `grantReadWriteData` on the table but needs only `PutItem`/`DeleteItem` for dedupe. Low risk; fix in phase 1.
 
 ---
 
@@ -142,12 +147,12 @@ Run 2026-10-31 in the cloud workspace (no AWS credentials).
 
 | Phase | Title | Commit | Date |
 |---|---|---|---|
-| 0 | Groundwork and plumbing (code; deploy pending) | see `git log` — `phase(0): …` | 2026-10-31 |
+| 0 | Groundwork and plumbing | `d405e0c` (code), closing commit `phase(0): close` | 2026-10-31 |
 
 ---
 
 ## Next phase entry conditions
 
-- Bot replies `pong` to a live message (requires the user steps above)
-- Table name `homestock` and bucket `homestock-receipts-<account-id>` — recorded above ✔
-- LLM provider chosen (Q4) and its API key stored in SSM
+- Bot replies to a live message — ✔ (`pong`, 2026-10-31)
+- Table and bucket names readable from this file — ✔
+- Q4 decided and the LLM API key stored in SSM — **open**

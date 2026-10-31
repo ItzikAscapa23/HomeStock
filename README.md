@@ -8,8 +8,8 @@ sure of.
 Each household runs its **own copy** in its **own AWS account**. There is no shared
 server and no sign-up — you deploy it, you own the data.
 
-> **Status:** early development. Phase 0 (plumbing — the bot replies "pong") is in
-> place. See `plan.md` for the roadmap and `HANDOVER.md` for current state.
+> **Status:** early development. Phase 0 (plumbing — the bot replies "pong") is done
+> and deployed. See `plan.md` for the roadmap and `HANDOVER.md` for current state.
 
 **Cost:** designed to stay under ~$5/month (typically ~$1–3). Everything is
 pay-per-use; nothing is billed by the hour. LLM usage (from phase 1) is billed separately
@@ -102,13 +102,77 @@ When the login expires later: `aws sso login --profile homestock`.
 
 ## 3. Create the Telegram bot
 
-*Section to be completed once this step has been run end to end.*
+In Telegram, open **@BotFather** (blue checkmark) and create a new bot (`/newbot`, or
+the *New bot* form):
+
+- **Name** — what people see, e.g. `המלאי של הבית`.
+- **Username** — unique, must end in `bot`.
+- Copy the **token** it gives you. Treat it like a password — anyone with it controls
+  the bot. Don't paste it into chats or commit it.
+
+Then **turn group privacy off**: `/setprivacy` → pick the bot → **Disable** (or *Bot
+Settings → Group Privacy* in the app). Without this, the bot only sees `/commands` in a
+group and never sees "נגמר חלב".
+
+### Store the secrets in AWS (SSM Parameter Store)
+
+Free, encrypted, and the Lambdas read them at runtime — the token never touches the code
+or the repo.
+
+```bash
+read -s BOT_TOKEN   # paste the token, press Enter (nothing is echoed)
+aws ssm put-parameter --profile homestock --type SecureString \
+  --name /homestock/telegram/bot-token --value "$BOT_TOKEN"
+unset BOT_TOKEN
+
+aws ssm put-parameter --profile homestock --type SecureString \
+  --name /homestock/telegram/webhook-secret --value "$(openssl rand -hex 32)"
+```
+Each prints `"Version": 1, "Tier": "Standard"`.
 
 ---
 
 ## 4. Deploy
 
-*Section to be completed once this step has been run end to end.*
+```bash
+npx cdk bootstrap --profile homestock   # once per account + region
+npm run deploy                          # shows the diff, asks y/n — answer y
+```
+The first deploy takes ~2–4 minutes and ends with:
+```
+HomeStock.BucketName = homestock-receipts-<your-account-id>
+HomeStock.TableName  = homestock
+HomeStock.WebhookUrl = https://<id>.execute-api.eu-central-1.amazonaws.com/telegram
+```
+
+Point Telegram at it (once — not part of deploy):
+```bash
+AWS_PROFILE=homestock npm run webhook
+```
+It prints `Webhook set: …` and Telegram's webhook info with `"pending_update_count": 0`.
+
+### Check it works
+Search for your bot's username in Telegram, tap **Start**, send anything. It replies
+**pong**.
+
+No reply? Look at the ingress logs:
+```bash
+aws logs tail /aws/lambda/$(aws lambda list-functions --profile homestock \
+  --query "Functions[?starts_with(FunctionName,'HomeStock-Ingress')].FunctionName" \
+  --output text) --since 5m --profile homestock
+```
+(Same for `HomeStock-Worker`.)
+
+### Updating later
+```bash
+git pull && npm ci && npm run deploy
+```
+The webhook doesn't need re-registering after a deploy.
+
+### Removing it
+`npx cdk destroy --profile homestock` removes everything **except** the DynamoDB table
+and the S3 bucket — those are kept on purpose so a mistake can't delete your history.
+Delete them by hand in the console if you really want them gone.
 
 ---
 
@@ -127,6 +191,9 @@ work setup needs it.
 **Region selector is greyed out / locked** in the AWS console. You're on a global
 service page (Billing, IAM, Organizations). Open a regional service first, or use a
 direct link with `?region=eu-central-1`.
+
+**`Token has expired`** / `The SSO session … has expired` — run
+`aws sso login --profile homestock`.
 
 ---
 

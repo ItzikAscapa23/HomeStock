@@ -177,6 +177,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **Receipt purchases ≠ interval learning yet.** Purchases are recorded from now on; using them (R7) is phase 2, still behind the review gate.
 - **Worker `retryAttempts: 0`** still stands; processing is not yet idempotent per `update_id` (ingress dedupe covers Telegram retries).
 
+- **Recipes (user decision, 2026-10-31): wait for the two-week review, then decide.** Phase 4 (recipe bank) is independent of usage data and could be built as an opt-in amendment; phase 5 (meal planning) needs phase 2 scores and Q2. Before phase 4: decide where household context (R20) lives (bot command vs local file — never git) and whether recipes run in the private chat or the group.
 - **Proposed, not approved (user: "not yet", 2026-10-31):**
   - *List clearing before the review gate* — the list only grows; a minimal R3 `/bought` (tap what you didn't get, rest cleared and recorded as purchases) would keep the list trustworthy during the two-week test. Plan change — user's call.
   - *Usual quantity per item* — `qty` in the seed shown on `/list` ("חלב ×3 ליטר"), plus an optional number in a report overriding it. Never ask at report time (C7); no stock counting (N5). Later learnable from purchases (phase 2).

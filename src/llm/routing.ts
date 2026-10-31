@@ -12,6 +12,9 @@ import {
 /** Defaults. Override any task with the LLM_ROUTING env var (set from CDK context `llmRouting`). */
 export const DEFAULT_ROUTING: RoutingConfig = {
   'resolve-item': { provider: 'anthropic', model: 'claude-haiku-5-5' },
+  // Reading a multi-page Hebrew receipt (bidi text, promo lines, substitutions) justifies the stronger model.
+  'extract-receipt': { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+  'resolve-receipt-lines': { provider: 'anthropic', model: 'claude-haiku-5-5' },
 };
 
 /** Merges a JSON override (e.g. {"resolve-item":{"provider":"openai","model":"gpt-5.4-mini"}}) onto the defaults. */

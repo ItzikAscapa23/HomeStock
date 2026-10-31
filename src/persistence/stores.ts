@@ -7,7 +7,7 @@ import {
   UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
-import type { Item, ListEntry } from '../domain/item.js';
+import type { Item, ListEntry, Purchase, ReceiptLine } from '../domain/item.js';
 import { keys, stripKeys, TTL_ATTRIBUTE } from './keys.js';
 
 // ---------- interfaces (services depend on these, tests fake them) ----------
@@ -17,6 +17,8 @@ export interface ItemStore {
   put(item: Item): Promise<void>;
   /** Adds an alias if absent. No-op if the item already has it. */
   addAlias(itemId: string, alias: string): Promise<void>;
+  /** Adds a receipt item code if absent. */
+  addCode(itemId: string, code: string): Promise<void>;
   markOut(itemId: string, at: Date): Promise<void>;
 }
 
@@ -45,8 +47,10 @@ export interface MessageLog {
   recordParsed(updateId: number, receivedAt: Date, parsed: unknown): Promise<void>;
 }
 
-/** A question waiting for a button tap (unknown or ambiguous item). */
+/** A question waiting for a button tap (unknown or ambiguous item in a report). */
 export interface PendingAsk {
+  /** Absent on rows written before receipts existed. */
+  kind?: 'item';
   id: string;
   chatId: number;
   /** The words the user wrote, normalised — becomes the alias on confirm (R21). */
@@ -59,11 +63,65 @@ export interface PendingAsk {
   createdAt: string;
 }
 
+/** Receipt lines that would become new items — confirmed together with one tap. */
+export interface PendingReceiptBatch {
+  kind: 'receipt-batch';
+  id: string;
+  chatId: number;
+  receiptId: string;
+  purchasedOn: string;
+  lines: { line: ReceiptLine; proposal: { name: string; category: string } }[];
+  /** The summary message text, so the edit after the tap can keep it. */
+  text?: string;
+  createdByUserId?: number;
+  createdAt: string;
+}
+
+/** One genuinely ambiguous receipt line: "is this X?" */
+export interface PendingReceiptLine {
+  kind: 'receipt-line';
+  id: string;
+  chatId: number;
+  receiptId: string;
+  purchasedOn: string;
+  line: ReceiptLine;
+  candidateItemId: string;
+  proposal: { name: string; category: string };
+  createdByUserId?: number;
+  createdAt: string;
+}
+
+export type Pending = PendingAsk | PendingReceiptBatch | PendingReceiptLine;
+
 export interface PendingStore {
-  put(p: PendingAsk): Promise<void>;
-  get(id: string): Promise<PendingAsk | undefined>;
-  /** Deletes and returns the ask; undefined if it was already taken (double tap, stale button). */
-  take(id: string): Promise<PendingAsk | undefined>;
+  put(p: Pending): Promise<void>;
+  get(id: string): Promise<Pending | undefined>;
+  /** Deletes and returns the pending row; undefined if it was already taken (double tap, stale button). */
+  take(id: string): Promise<Pending | undefined>;
+}
+
+export interface PurchaseStore {
+  add(purchases: Purchase[]): Promise<void>;
+  listForItem(itemId: string): Promise<Purchase[]>;
+}
+
+/** Receipt bookkeeping. `claim` is the duplicate guard: the same file twice is recorded once. */
+export interface ReceiptRecord {
+  receiptId: string;
+  chatId: number;
+  receivedAt: string;
+  status: 'processing' | 'done';
+  fileKey?: string;
+  store?: string | null;
+  purchasedOn?: string;
+  lines?: ReceiptLine[];
+  summary?: Record<string, unknown>;
+}
+
+export interface ReceiptStore {
+  claim(rec: ReceiptRecord): Promise<boolean>;
+  release(receiptId: string): Promise<void>;
+  complete(receiptId: string, fields: Partial<ReceiptRecord>): Promise<void>;
 }
 
 // ---------- DynamoDB implementations ----------
@@ -104,6 +162,22 @@ export class DynamoItemStore implements ItemStore {
           UpdateExpression: 'SET aliases = list_append(aliases, :a)',
           ConditionExpression: 'attribute_exists(PK) AND NOT contains(aliases, :alias)',
           ExpressionAttributeValues: { ':a': [alias], ':alias': alias },
+        }),
+      );
+    } catch (err) {
+      if (!(err instanceof ConditionalCheckFailedException)) throw err;
+    }
+  }
+
+  async addCode(itemId: string, code: string): Promise<void> {
+    try {
+      await this.db.send(
+        new UpdateCommand({
+          TableName: this.table,
+          Key: keys.item(itemId),
+          UpdateExpression: 'SET codes = list_append(if_not_exists(codes, :empty), :c)',
+          ConditionExpression: 'attribute_exists(PK) AND (attribute_not_exists(codes) OR NOT contains(codes, :code))',
+          ExpressionAttributeValues: { ':c': [code], ':code': code, ':empty': [] },
         }),
       );
     } catch (err) {
@@ -188,7 +262,7 @@ export class DynamoPendingStore implements PendingStore {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async put(p: PendingAsk): Promise<void> {
+  async put(p: Pending): Promise<void> {
     await this.db.send(
       new PutCommand({
         TableName: this.table,
@@ -201,15 +275,79 @@ export class DynamoPendingStore implements PendingStore {
     );
   }
 
-  async get(id: string): Promise<PendingAsk | undefined> {
+  async get(id: string): Promise<Pending | undefined> {
     const res = await this.db.send(new GetCommand({ TableName: this.table, Key: keys.pending(id) }));
-    return res.Item ? stripKeys<PendingAsk>(res.Item) : undefined;
+    return res.Item ? stripKeys<Pending>(res.Item) : undefined;
   }
 
-  async take(id: string): Promise<PendingAsk | undefined> {
+  async take(id: string): Promise<Pending | undefined> {
     const res = await this.db.send(
       new DeleteCommand({ TableName: this.table, Key: keys.pending(id), ReturnValues: 'ALL_OLD' }),
     );
-    return res.Attributes ? stripKeys<PendingAsk>(res.Attributes) : undefined;
+    return res.Attributes ? stripKeys<Pending>(res.Attributes) : undefined;
+  }
+}
+
+export class DynamoPurchaseStore implements PurchaseStore {
+  constructor(private readonly db: DynamoDBDocumentClient, private readonly table: string) {}
+
+  async add(purchases: Purchase[]): Promise<void> {
+    for (const p of purchases) {
+      const source = p.receiptId ?? p.source;
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: { ...keys.purchase(p.itemId, p.purchasedOn, source, p.lineIndex ?? 0), ...p },
+        }),
+      );
+    }
+  }
+
+  async listForItem(itemId: string): Promise<Purchase[]> {
+    const res = await this.db.send(
+      new QueryCommand({
+        TableName: this.table,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': keys.purchasePartition(itemId) },
+      }),
+    );
+    return (res.Items ?? []).map((r) => stripKeys<Purchase>(r));
+  }
+}
+
+export class DynamoReceiptStore implements ReceiptStore {
+  constructor(private readonly db: DynamoDBDocumentClient, private readonly table: string) {}
+
+  async claim(rec: ReceiptRecord): Promise<boolean> {
+    try {
+      await this.db.send(
+        new PutCommand({
+          TableName: this.table,
+          Item: { ...keys.receipt(rec.receiptId), ...rec },
+          ConditionExpression: 'attribute_not_exists(PK)',
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (err instanceof ConditionalCheckFailedException) return false;
+      throw err;
+    }
+  }
+
+  async release(receiptId: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: keys.receipt(receiptId) }));
+  }
+
+  async complete(receiptId: string, fields: Partial<ReceiptRecord>): Promise<void> {
+    const entries = Object.entries({ ...fields, status: 'done' }).filter(([, v]) => v !== undefined);
+    await this.db.send(
+      new UpdateCommand({
+        TableName: this.table,
+        Key: keys.receipt(receiptId),
+        UpdateExpression: `SET ${entries.map((_, i) => `#k${i} = :v${i}`).join(', ')}`,
+        ExpressionAttributeNames: Object.fromEntries(entries.map(([k], i) => [`#k${i}`, k])),
+        ExpressionAttributeValues: Object.fromEntries(entries.map(([, v], i) => [`:v${i}`, v])),
+      }),
+    );
   }
 }

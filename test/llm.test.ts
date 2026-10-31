@@ -111,3 +111,49 @@ describe('routing', () => {
     await expect(client.complete(req, (j) => j)).rejects.toThrow(/No adapter registered for provider "anthropic"/);
   });
 });
+
+describe('file attachments (receipts)', () => {
+  const withFile = (mediaType: 'application/pdf' | 'image/jpeg'): LlmRequest => ({
+    ...req,
+    task: 'extract-receipt',
+    attachments: [{ mediaType, base64: 'QUJD' }],
+    timeoutMs: 120_000,
+  });
+
+  it('Anthropic: document block for PDF, image block for photos, then the text', async () => {
+    const ok = { content: [{ type: 'tool_use', name: 'resolution', input: {} }] };
+    const pdf = fakeFetch(200, ok);
+    await new AnthropicAdapter(async () => 'K', pdf.fn).completeJson('m', withFile('application/pdf'));
+    expect(pdf.calls[0]!.body.messages[0].content).toEqual([
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'QUJD' } },
+      { type: 'text', text: 'נגמר חלב' },
+    ]);
+    const img = fakeFetch(200, ok);
+    await new AnthropicAdapter(async () => 'K', img.fn).completeJson('m', withFile('image/jpeg'));
+    expect(img.calls[0]!.body.messages[0].content[0]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' },
+    });
+  });
+
+  it('OpenAI: file part for PDF, image_url data URI for photos', async () => {
+    const ok = { choices: [{ message: { content: '{}' } }] };
+    const pdf = fakeFetch(200, ok);
+    await new OpenAiAdapter(async () => 'K', pdf.fn).completeJson('m', withFile('application/pdf'));
+    expect(pdf.calls[0]!.body.messages[1].content).toEqual([
+      { type: 'file', file: { filename: 'receipt-1.pdf', file_data: 'data:application/pdf;base64,QUJD' } },
+      { type: 'text', text: 'נגמר חלב' },
+    ]);
+    const img = fakeFetch(200, ok);
+    await new OpenAiAdapter(async () => 'K', img.fn).completeJson('m', withFile('image/jpeg'));
+    expect(img.calls[0]!.body.messages[1].content[0]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/jpeg;base64,QUJD' },
+    });
+  });
+
+  it('receipt tasks route to the stronger model for reading, the small one for matching', () => {
+    expect(DEFAULT_ROUTING['extract-receipt']).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5-5' });
+    expect(DEFAULT_ROUTING['resolve-receipt-lines'].model).toBe('claude-haiku-5-5');
+  });
+});

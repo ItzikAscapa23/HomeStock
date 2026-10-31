@@ -10,6 +10,8 @@
  * | Open list row | LIST#OPEN          | ITEM#<itemId>           |
  * | Message log   | MSG#<yyyy-mm>      | <iso-ts>#<updateId>     |
  * | Pending ask   | PENDING#<id>       | PENDING                 |
+ * | Purchase      | PURCHASE#<itemId>  | <yyyy-mm-dd>#<receipt>#<line> |
+ * | Receipt       | RECEIPT#<fileUniqueId> | RECEIPT             |
  *
  * The registry and the open list are single partitions on purpose: 200–400 items and a
  * few dozen list rows are read whole every time (C3: no GSIs, no scans).
@@ -30,6 +32,15 @@ export const keys = {
   }),
 
   pending: (id: string) => ({ PK: `PENDING#${id}`, SK: 'PENDING' }),
+
+  purchasePartition: (itemId: string) => `PURCHASE#${itemId}`,
+  /** Per-item partition, sorted by day — phase 2 reads one item's history to learn its interval. */
+  purchase: (itemId: string, purchasedOn: string, source: string, lineIndex: number) => ({
+    PK: `PURCHASE#${itemId}`,
+    SK: `${purchasedOn}#${source}#${lineIndex}`,
+  }),
+
+  receipt: (receiptId: string) => ({ PK: `RECEIPT#${receiptId}`, SK: 'RECEIPT' }),
 } as const;
 
 export const TTL_ATTRIBUTE = 'ttl';

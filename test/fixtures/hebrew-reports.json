@@ -22,13 +22,17 @@
     { "text": "  נגמר   חלב!!  ", "items": ["milk"] },
     { "text": "נגמר 2 ליטר חלב", "items": ["milk"] },
     { "text": "נגמר חלב, ביצים ולחם", "items": ["milk", "eggs", "bread"] },
-    { "text": "בבקשה תקנו במבה", "items": ["snacks"] }
+    { "text": "בבקשה תקנו במבה", "items": ["snacks"] },
+    { "text": "נגמר חלב 3%", "items": ["milk"] },
+    { "text": "נגמר חלב סויה", "items": ["soy-milk"] },
+    { "text": "נגמר חלב וחלב סויה", "items": ["milk", "soy-milk"] }
   ],
   "needsLlm": [
     { "text": "נגמר הסבון", "why": "ambiguous — dishes, hands, body or floor" },
     { "text": "נגמרה הקינואה", "why": "not in the registry" },
     { "text": "נגמר חלב ושוקולד מריר", "why": "partial — שוקולד מריר leaves 'מריר' unexplained" },
-    { "text": "תודה", "why": "not a report — but only the LLM can tell" }
+    { "text": "תודה", "why": "not a report — but only the LLM can tell" },
+    { "text": "נגמר חלב 1%", "why": "a variant not in the registry — must not silently become the default milk" }
   ],
   "notAReport": [
     { "text": "נגמר" },

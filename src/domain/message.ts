@@ -12,7 +12,19 @@ export interface InboundMessage {
   text: string;
   /** Bot command without the leading slash or @botname suffix, lower-cased ("list"). */
   command: string | undefined;
+  /** A PDF or image sent with the message — a receipt candidate (R1). */
+  attachment?: Attachment;
   receivedAt: Date;
+}
+
+export interface Attachment {
+  kind: 'pdf' | 'image';
+  /** Opaque handle for downloading. */
+  fileId: string;
+  /** Stable across re-sends of the same file — used to detect a duplicate receipt. */
+  fileUniqueId: string;
+  mimeType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  sizeBytes: number | undefined;
 }
 
 export interface InboundCallback {

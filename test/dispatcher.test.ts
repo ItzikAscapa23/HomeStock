@@ -66,7 +66,7 @@ describe('depletion report (R4, R25)', () => {
   it('"נגמר חלב" adds milk to the list and replies in one line', async () => {
     const { d, list, items, llm } = setup();
     const replies = await d.handle(msg('נגמר חלב'), {});
-    expect(replies).toEqual([{ type: 'send', text: '✓ חלב — ברשימה' }]);
+    expect(replies).toEqual([{ type: 'send', text: '✓ חלב 3% — ברשימה' }]);
     expect(replies[0]!.type === 'send' && replies[0]!.text).not.toContain('\n');
     expect(list.entries.get('milk')).toMatchObject({ itemId: 'milk', reason: 'out', createdByUserId: 42 });
     expect(items.items.get('milk')!.lastOutAt).toBe(AT.toISOString()); // marked out, cycle reset (R4, R5)
@@ -83,7 +83,7 @@ describe('depletion report (R4, R25)', () => {
     const { d, list } = setup();
     await d.handle(msg('נגמר חלב'), {});
     const replies = await d.handle(msg('אין חלב'), {});
-    expect(replies).toEqual([{ type: 'send', text: 'חלב כבר ברשימה' }]);
+    expect(replies).toEqual([{ type: 'send', text: 'חלב 3% כבר ברשימה' }]);
     expect(list.entries.size).toBe(1);
   });
 
@@ -91,7 +91,7 @@ describe('depletion report (R4, R25)', () => {
     const { d, list } = setup();
     await d.handle(msg('נגמר חלב'), {});
     const replies = await d.handle(msg('נגמר חלב וביצים'), {});
-    expect(replies).toEqual([{ type: 'send', text: '✓ ביצים — ברשימה (חלב כבר שם)' }]);
+    expect(replies).toEqual([{ type: 'send', text: '✓ ביצים — ברשימה (חלב 3% כבר שם)' }]);
     expect(list.entries.size).toBe(2);
   });
 
@@ -192,7 +192,7 @@ describe('/list (R12)', () => {
     const [r] = await d.handle(msg('/list', GROUP, 'list'), {});
     expect(r).toEqual({
       type: 'send',
-      text: '🛒 רשימת קניות\n\nפירות וירקות:\n• עגבניות — נגמר\n\nמוצרי חלב וביצים:\n• חלב — נגמר\n\nניקיון:\n• סבון כלים — נגמר',
+      text: '🛒 רשימת קניות\n\nפירות וירקות:\n• עגבניות — נגמר\n\nמוצרי חלב וביצים:\n• חלב 3% — נגמר\n\nניקיון:\n• סבון כלים — נגמר',
     });
   });
 

@@ -5,12 +5,35 @@ export interface ChatSender {
   deliver(chatId: number, reply: Reply): Promise<void>;
 }
 
+export interface FileSource {
+  /** Downloads a file sent to the bot. Rejects files over `maxBytes`. */
+  download(fileId: string, maxBytes: number): Promise<Uint8Array>;
+}
+
 /** Minimal Bot API client over global fetch — no SDK, keeps the bundle small. */
-export class TelegramClient implements ChatSender {
+export class TelegramClient implements ChatSender, FileSource {
   constructor(
     private readonly getToken: () => Promise<string>,
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
+
+  async download(fileId: string, maxBytes: number): Promise<Uint8Array> {
+    const meta = (await this.call('getFile', { file_id: fileId })) as {
+      result?: { file_path?: string; file_size?: number };
+    };
+    const path = meta.result?.file_path;
+    if (!path) throw new Error('Telegram getFile returned no file_path');
+    if ((meta.result?.file_size ?? 0) > maxBytes) throw new Error(`File too large (${meta.result?.file_size} bytes)`);
+
+    const token = await this.getToken();
+    const res = await this.fetchFn(`https://api.telegram.org/file/bot${token}/${path}`, {
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Telegram file download failed: ${res.status}`); // no URL: it carries the token
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw new Error(`File too large (${bytes.byteLength} bytes)`);
+    return bytes;
+  }
 
   async deliver(chatId: number, reply: Reply): Promise<void> {
     switch (reply.type) {

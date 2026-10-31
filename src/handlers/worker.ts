@@ -11,6 +11,7 @@ export async function handler(event: WorkerEvent): Promise<void> {
   if (!inbound) return;
 
   const { dispatcher, telegram } = getContainer();
-  const replies = await dispatcher.handle(inbound, event.update);
-  for (const reply of replies) await telegram.deliver(inbound.chatId, reply);
+  const deliver = (reply: Parameters<typeof telegram.deliver>[1]) => telegram.deliver(inbound.chatId, reply);
+  const replies = await dispatcher.handle(inbound, event.update, deliver);
+  for (const reply of replies) await deliver(reply);
 }

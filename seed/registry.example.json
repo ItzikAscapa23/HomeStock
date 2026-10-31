@@ -1,7 +1,8 @@
 {
-  "_comment": "Example registry. Copy to seed/registry.local.json (git-ignored), edit to match what your household buys, then run `npm run seed`. ids: lowercase latin, never change once seeded. aliases: other ways people write it — the bot also learns aliases as you use it.",
+  "_comment": "Example registry. Items are variant-level (Q3): \"חלב 3%\" and \"חלב סויה\" are separate items; the bare word \"חלב\" is an alias of the household's usual milk, so \"נגמר החלב\" needs no question. Copy to seed/registry.local.json (git-ignored), edit to match what your household buys, then run `npm run seed`. ids: lowercase latin, never change once seeded. aliases: other ways people write it — the bot also learns aliases as you use it.",
   "items": [
-    { "id": "milk", "name": "חלב", "category": "dairy", "aliases": ["חלב 3%", "חלב 1%", "קרטון חלב"] },
+    { "id": "milk", "name": "חלב 3%", "category": "dairy", "aliases": ["חלב", "קרטון חלב"] },
+    { "id": "soy-milk", "name": "חלב סויה", "category": "dairy", "aliases": ["משקה סויה"] },
     { "id": "eggs", "name": "ביצים", "category": "dairy", "aliases": ["ביצה", "תבנית ביצים"] },
     { "id": "cottage", "name": "קוטג׳", "category": "dairy", "aliases": ["קוטג", "קוטג'"] },
     { "id": "white-cheese", "name": "גבינה לבנה", "category": "dairy", "aliases": ["לבנה 5%", "גבינה 5%"] },

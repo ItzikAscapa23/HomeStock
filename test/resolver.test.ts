@@ -97,10 +97,10 @@ describe('LLM fallback', () => {
 
   it('a confident match resolves the item', async () => {
     const { resolver } = setup([
-      { isReport: true, items: [{ mention: 'חלב סויה', itemId: 'milk', confidence: 'high', candidateItemIds: [], newItem: null }] },
+      { isReport: true, items: [{ mention: 'חלב עמיד', itemId: 'milk', confidence: 'high', candidateItemIds: [], newItem: null }] },
     ]);
-    const r = await resolver.resolve('נגמר חלב סויה');
-    expect(r).toMatchObject({ kind: 'items', path: 'llm', resolved: [{ itemId: 'milk', mention: 'חלב סויה', via: 'llm' }] });
+    const r = await resolver.resolve('נגמר חלב עמיד');
+    expect(r).toMatchObject({ kind: 'items', path: 'llm', resolved: [{ itemId: 'milk', mention: 'חלב עמיד', via: 'llm' }] });
   });
 
   it('an ambiguous match becomes a question with candidates', async () => {

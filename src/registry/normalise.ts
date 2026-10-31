@@ -28,14 +28,20 @@ const PREFIX_LETTERS = new Set(['ו', 'ה', 'ב', 'ל', 'מ', 'ש', 'כ']);
 const MAX_PREFIX_STRIP = 3;
 const MIN_STEM_LENGTH = 2;
 
-/** Lower-case, drop niqqud and cantillation, geresh/quotes, punctuation; collapse whitespace. */
+/**
+ * Lower-case, drop niqqud and cantillation, geresh/quotes, punctuation and bare numbers;
+ * collapse whitespace. Percentages survive as tokens ("3%"), because items are
+ * variant-level (Q3): "חלב 3%" and "חלב 1%" are different items, while "2 ליטר" is noise.
+ */
 export function normalise(text: string): string {
   return text
     .normalize('NFC')
     .replace(/[֑-ׇ]/g, (c) => (c === '־' ? ' ' : '')) // niqqud; maqaf → space
     .replace(/[׳״'"`׳״]/g, '') // geresh, gershayim, quotes (ק"ג → קג)
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\d+/g, ' ')
+    .replace(/[^\p{L}\p{N}%\s]/gu, ' ')
+    .replace(/(\d+)\s*%/g, ' $1% ') // "3 %" / "3%שומן" → " 3% "
+    .replace(/\d+(?![\d%])/g, ' ') // numbers that aren't percentages
+    .replace(/(^|\s)%+(?=\s|$)/g, ' ') // a lone % left behind
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();

@@ -3,6 +3,7 @@ import { CATEGORIES, type CategoryId } from '../domain/categories.js';
 import type { Item } from '../domain/item.js';
 import type { Button, Inbound, InboundCallback, InboundMessage, Reply } from '../domain/message.js';
 import type { MessageLog, PendingAsk, PendingStore } from '../persistence/stores.js';
+import type { ReceiptFlow } from './receipt-flow.js';
 import type { ItemRegistry } from '../registry/item-registry.js';
 import type { Resolution, Resolver, UnresolvedMention } from '../registry/resolver.js';
 import { formatList, type ReportOutcome, type ShoppingList } from '../shopping/shopping-list.js';
@@ -33,6 +34,7 @@ export interface DispatcherDeps {
   shopping: ShoppingList;
   pending: PendingStore;
   log: MessageLog;
+  receipts?: ReceiptFlow;
   newId?: () => string;
   logError?: (msg: string, err: unknown) => void;
 }
@@ -47,7 +49,11 @@ export class Dispatcher {
     this.logError = d.logError ?? ((msg, err) => console.error(JSON.stringify({ msg, error: String(err) })));
   }
 
-  async handle(event: Inbound, raw: unknown): Promise<Reply[]> {
+  /**
+   * `emit` delivers a reply immediately (progress for slow work, e.g. reading a receipt);
+   * everything else is returned and delivered by the caller.
+   */
+  async handle(event: Inbound, raw: unknown, emit: (r: Reply) => Promise<void> = async () => {}): Promise<Reply[]> {
     // R23: raw first, so a failure later still leaves the original text on record.
     await this.d.log.recordRaw({
       updateId: event.updateId,
@@ -63,7 +69,7 @@ export class Dispatcher {
     let parsed: Record<string, unknown> = { intent: 'ignored' };
     let replies: Reply[] = [];
     try {
-      [parsed, replies] = await this.route(event);
+      [parsed, replies] = await this.route(event, emit);
     } catch (err) {
       this.logError('dispatch failed', err);
       parsed = { intent: 'error', error: String(err) };
@@ -76,7 +82,7 @@ export class Dispatcher {
     return replies;
   }
 
-  private async route(event: Inbound): Promise<[Record<string, unknown>, Reply[]]> {
+  private async route(event: Inbound, emit: (r: Reply) => Promise<void>): Promise<[Record<string, unknown>, Reply[]]> {
     // /chatid answers anywhere — it's how a household finds the id to allow.
     if (event.kind === 'message' && event.command === 'chatid') {
       return [{ intent: 'chatid' }, [{ type: 'send', text: COPY.chatId(event.chatId, event.fromUserId) }]];
@@ -84,6 +90,11 @@ export class Dispatcher {
     if (!(await this.d.gate.isAllowed(event.chatId))) return [{ intent: 'chat-not-allowed' }, []];
 
     if (event.kind === 'callback') return this.onCallback(event);
+    if (event.attachment) {
+      // Receipts only in a private chat with the bot; photos and files in the group are family life, not receipts.
+      if (event.chatType !== 'private' || !this.d.receipts) return [{ intent: 'attachment-ignored' }, []];
+      return this.d.receipts.onReceipt(event, emit);
+    }
     switch (event.command) {
       case undefined:
         return this.onReport(event);
@@ -145,13 +156,19 @@ export class Dispatcher {
 
   private async onCallback(cb: InboundCallback): Promise<[Record<string, unknown>, Reply[]]> {
     const [prefix, askId, choice] = cb.data.split(':');
+    if ((prefix === 'r' || prefix === 'l') && askId && choice && this.d.receipts) {
+      return this.d.receipts.onCallback(cb, prefix, askId, choice);
+    }
     if (prefix !== CALLBACK_PREFIX || !askId || !choice) {
       return [{ intent: 'callback-unknown' }, [{ type: 'ack', callbackId: cb.callbackId }]];
     }
 
     // take() is atomic: a double tap or a stale button finds nothing.
-    const ask = await this.d.pending.take(askId);
-    if (!ask) return [{ intent: 'callback-stale' }, [{ type: 'ack', callbackId: cb.callbackId, text: COPY.stale }]];
+    const taken = await this.d.pending.take(askId);
+    if (!taken || (taken.kind !== undefined && taken.kind !== 'item')) {
+      return [{ intent: 'callback-stale' }, [{ type: 'ack', callbackId: cb.callbackId, text: COPY.stale }]];
+    }
+    const ask: PendingAsk = taken;
 
     const ack: Reply = { type: 'ack', callbackId: cb.callbackId };
     const edit = (text: string): Reply => ({ type: 'edit', messageId: cb.messageId, text });

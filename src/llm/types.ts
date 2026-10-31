@@ -3,7 +3,7 @@
  * picks provider + model. Callers never see a provider or model name.
  */
 
-export const LLM_TASKS = ['resolve-item'] as const;
+export const LLM_TASKS = ['resolve-item', 'extract-receipt', 'resolve-receipt-lines'] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 
 export const LLM_PROVIDERS = ['anthropic', 'openai'] as const;
@@ -23,6 +23,15 @@ export interface LlmRequest {
   schemaName: string;
   schema: JsonSchema;
   maxTokens?: number;
+  /** Files sent with the user turn (receipt PDF or photo). Base64, no data: prefix. */
+  attachments?: LlmAttachment[];
+  /** Per-call timeout. Default 25 s; a multi-page receipt needs longer. */
+  timeoutMs?: number;
+}
+
+export interface LlmAttachment {
+  mediaType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+  base64: string;
 }
 
 export interface LlmResult<T> {

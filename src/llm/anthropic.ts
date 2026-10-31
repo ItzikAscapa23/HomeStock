@@ -2,7 +2,7 @@ import type { LlmRequest, ProviderAdapter } from './types.js';
 
 const URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
-const TIMEOUT_MS = 25_000;
+const DEFAULT_TIMEOUT_MS = 25_000;
 
 /** Anthropic Messages API over fetch. Structured output via a forced tool call; the system prompt is cache-marked. */
 export class AnthropicAdapter implements ProviderAdapter {
@@ -18,7 +18,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       model,
       max_tokens: req.maxTokens ?? 1024,
       system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: req.user }],
+      messages: [{ role: 'user', content: userContent(req) }],
       tools: [{ name: req.schemaName, description: 'Return the result.', input_schema: req.schema }],
       tool_choice: { type: 'tool', name: req.schemaName },
     };
@@ -31,7 +31,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         'anthropic-version': API_VERSION,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
 
     const json = (await res.json().catch(() => undefined)) as
@@ -43,4 +43,17 @@ export class AnthropicAdapter implements ProviderAdapter {
     if (!toolUse) throw new Error('Anthropic: response had no tool_use block');
     return toolUse.input;
   }
+}
+
+/** Files first, then the text (Anthropic's recommended order for documents). */
+function userContent(req: LlmRequest): string | unknown[] {
+  if (!req.attachments?.length) return req.user;
+  return [
+    ...req.attachments.map((a) =>
+      a.mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: a.mediaType, data: a.base64 } }
+        : { type: 'image', source: { type: 'base64', media_type: a.mediaType, data: a.base64 } },
+    ),
+    { type: 'text', text: req.user },
+  ];
 }

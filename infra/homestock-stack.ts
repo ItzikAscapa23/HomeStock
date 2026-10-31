@@ -67,11 +67,12 @@ export class HomeStockStack extends Stack {
     const worker = new NodejsFunction(this, 'Worker', {
       ...fnDefaults('Worker'),
       entry: src('handlers/worker.ts'),
-      memorySize: 512,
-      timeout: Duration.seconds(60),
+      memorySize: 1024, // receipt files are held and base64-encoded in memory
+      timeout: Duration.seconds(180), // reading a multi-page receipt takes tens of seconds
       retryAttempts: 0, // a retry after a successful send would double-reply (R25, R26)
       environment: {
         TABLE_NAME: table.tableName,
+        BUCKET_NAME: bucket.bucketName,
         NODE_OPTIONS: '--enable-source-maps',
         // Optional per-task model routing (Q4), e.g. -c llmRouting='{"resolve-item":{"provider":"openai","model":"…"}}'
         ...(llmRouting && { LLM_ROUTING: llmRouting }),

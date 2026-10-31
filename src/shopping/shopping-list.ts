@@ -46,6 +46,14 @@ export class ShoppingList {
   async openEntries(): Promise<ListEntry[]> {
     return this.list.listOpen();
   }
+
+  /** Bought items leave the list (R3 via receipt). Returns the ids that were on it. */
+  async clearBought(itemIds: string[]): Promise<string[]> {
+    const open = new Set((await this.list.listOpen()).map((e) => e.itemId));
+    const cleared = [...new Set(itemIds)].filter((id) => open.has(id));
+    for (const id of cleared) await this.list.remove(id);
+    return cleared;
+  }
 }
 
 /** /list output: grouped by category in shop-walk order, one line per item with its reason (R12). */

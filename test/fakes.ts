@@ -6,9 +6,15 @@ import type {
   ListStore,
   MessageLog,
   MessageRecord,
-  PendingAsk,
+  Pending,
   PendingStore,
+  PurchaseStore,
+  ReceiptRecord,
+  ReceiptStore,
 } from '../src/persistence/stores.js';
+import type { Purchase } from '../src/domain/item.js';
+import type { ReceiptFiles } from '../src/persistence/receipt-files.js';
+import type { FileSource } from '../src/telegram/client.js';
 import { planSeed, type SeedEntry } from '../src/registry/seed.js';
 
 /** The committed example registry, as stored items. */
@@ -36,6 +42,10 @@ export class MemItemStore implements ItemStore {
   async addAlias(id: string, alias: string) {
     const i = this.items.get(id);
     if (i && !i.aliases.includes(alias)) i.aliases.push(alias);
+  }
+  async addCode(id: string, code: string) {
+    const i = this.items.get(id);
+    if (i && !(i.codes ?? []).includes(code)) i.codes = [...(i.codes ?? []), code];
   }
   async markOut(id: string, at: Date) {
     const i = this.items.get(id);
@@ -72,8 +82,8 @@ export class MemMessageLog implements MessageLog {
 }
 
 export class MemPendingStore implements PendingStore {
-  readonly asks = new Map<string, PendingAsk>();
-  async put(p: PendingAsk) {
+  readonly asks = new Map<string, Pending>();
+  async put(p: Pending) {
     this.asks.set(p.id, structuredClone(p));
   }
   async get(id: string) {
@@ -97,5 +107,49 @@ export class FakeLlm implements LlmClient {
     this.requests.push(req);
     if (this.answers.length === 0) throw new Error('FakeLlm: unexpected call');
     return { value: validate(this.answers.shift()), provider: 'anthropic', model: 'fake' };
+  }
+}
+
+export class MemPurchaseStore implements PurchaseStore {
+  readonly rows: Purchase[] = [];
+  async add(p: Purchase[]) {
+    this.rows.push(...structuredClone(p));
+  }
+  async listForItem(itemId: string) {
+    return this.rows.filter((r) => r.itemId === itemId);
+  }
+}
+
+export class MemReceiptStore implements ReceiptStore {
+  readonly records = new Map<string, ReceiptRecord>();
+  async claim(rec: ReceiptRecord) {
+    if (this.records.has(rec.receiptId)) return false;
+    this.records.set(rec.receiptId, structuredClone(rec));
+    return true;
+  }
+  async release(id: string) {
+    this.records.delete(id);
+  }
+  async complete(id: string, fields: Partial<ReceiptRecord>) {
+    const r = this.records.get(id);
+    if (!r) throw new Error('complete before claim');
+    Object.assign(r, structuredClone(fields), { status: 'done' });
+  }
+}
+
+export class MemReceiptFiles implements ReceiptFiles {
+  readonly files = new Map<string, Uint8Array>();
+  async put(i: { receiptId: string; receivedAt: Date; bytes: Uint8Array; mimeType: string }) {
+    const key = `receipts/${i.receiptId}`;
+    this.files.set(key, i.bytes);
+    return key;
+  }
+}
+
+export class FakeFiles implements FileSource {
+  readonly downloads: string[] = [];
+  async download(fileId: string) {
+    this.downloads.push(fileId);
+    return new TextEncoder().encode(`%PDF fake ${fileId}`);
   }
 }

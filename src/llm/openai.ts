@@ -1,7 +1,7 @@
 import type { LlmRequest, ProviderAdapter } from './types.js';
 
 const URL = 'https://api.openai.com/v1/chat/completions';
-const TIMEOUT_MS = 25_000;
+const DEFAULT_TIMEOUT_MS = 25_000;
 
 /** OpenAI Chat Completions over fetch. Structured output via strict json_schema; prefix caching is automatic. */
 export class OpenAiAdapter implements ProviderAdapter {
@@ -18,7 +18,7 @@ export class OpenAiAdapter implements ProviderAdapter {
       max_completion_tokens: req.maxTokens ?? 1024,
       messages: [
         { role: 'system', content: req.system },
-        { role: 'user', content: req.user },
+        { role: 'user', content: userContent(req) },
       ],
       response_format: {
         type: 'json_schema',
@@ -30,7 +30,7 @@ export class OpenAiAdapter implements ProviderAdapter {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${await this.getKey()}` },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
 
     const json = (await res.json().catch(() => undefined)) as
@@ -43,4 +43,16 @@ export class OpenAiAdapter implements ProviderAdapter {
     if (!message?.content) throw new Error('OpenAI: response had no content');
     return JSON.parse(message.content);
   }
+}
+
+function userContent(req: LlmRequest): string | unknown[] {
+  if (!req.attachments?.length) return req.user;
+  return [
+    ...req.attachments.map((a, i) =>
+      a.mediaType === 'application/pdf'
+        ? { type: 'file', file: { filename: `receipt-${i + 1}.pdf`, file_data: `data:${a.mediaType};base64,${a.base64}` } }
+        : { type: 'image_url', image_url: { url: `data:${a.mediaType};base64,${a.base64}` } },
+    ),
+    { type: 'text', text: req.user },
+  ];
 }

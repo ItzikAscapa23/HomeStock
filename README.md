@@ -8,8 +8,8 @@ sure of.
 Each household runs its **own copy** in its **own AWS account**. There is no shared
 server and no sign-up — you deploy it, you own the data.
 
-> **Status:** early development. Phase 1 — report what ran out, get a shopping list —
-> is live. See `plan.md` for the roadmap
+> **Status:** early development. Reporting what ran out and the shopping list are live;
+> receipt reading is built and awaiting its first live run. See `plan.md` for the roadmap
 > and `HANDOVER.md` for current state.
 
 **Cost:** designed to stay under ~$5/month (typically ~$1–3). Everything is
@@ -196,12 +196,24 @@ the seed is safe: it updates items and keeps the aliases the bot has learned.
    reads the id as an option (*expected one argument*). To change it later add
    `--overwrite`. Takes effect within 5 minutes.
 
+### 5.4 Receipts (optional)
+Send a supermarket receipt — a digital PDF (e.g. a Shufersal Online delivery note) or a
+photo of a paper one — **in your private chat with the bot** (files in the group are
+ignored). The bot reads it, records what you bought, takes those items off the shopping
+list, and asks once about products it hasn't seen: one "✓ add all" for new products, a
+single question for any it isn't sure about. Next time those products are recognised by
+their barcode/item code, with no questions.
+
+The file is stored privately in your S3 bucket and sent to the LLM provider to be read —
+it includes whatever personal details are printed on the receipt.
+
 ### Check it works
 In the group:
 - `נגמר חלב` → `✓ חלב — ברשימה`
 - something not on your list, e.g. `נגמרה הקינואה` → buttons → tap **➕ חדש** → next time
   the same words are understood without asking
 - `/list` → the shopping list by supermarket section
+- a receipt PDF in the private chat → a summary of what was bought
 
 No reply? Look at the logs:
 ```bash

@@ -1,4 +1,4 @@
-import type { Inbound, InboundCallback, InboundMessage } from '../domain/message.js';
+import type { Attachment, Inbound, InboundCallback, InboundMessage } from '../domain/message.js';
 
 /** The subset of the Telegram Update object we read. Kept private to `telegram/`. */
 interface TgUser {
@@ -14,6 +14,13 @@ interface TgMessage {
   chat?: { id?: number; type?: string };
   from?: TgUser;
   entities?: { type?: string; offset?: number; length?: number }[];
+  document?: TgFile & { mime_type?: string; file_name?: string };
+  photo?: (TgFile & { width?: number; height?: number })[];
+}
+interface TgFile {
+  file_id?: string;
+  file_unique_id?: string;
+  file_size?: number;
 }
 interface TgUpdate {
   update_id?: unknown;
@@ -47,6 +54,7 @@ function toMessage(updateId: number, msg: TgMessage): InboundMessage | undefined
     ? text.slice(1, cmdEntity.length ?? text.length).split('@')[0]?.toLowerCase()
     : undefined;
 
+  const attachment = attachmentOf(msg);
   return {
     kind: 'message',
     updateId,
@@ -57,7 +65,39 @@ function toMessage(updateId: number, msg: TgMessage): InboundMessage | undefined
     fromName: msg.from?.first_name,
     text,
     command: command || undefined,
+    ...(attachment && { attachment }),
     receivedAt: new Date((msg.date ?? 0) * 1000),
+  };
+}
+
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/** A PDF document, an image sent as a file, or a photo (largest size). Anything else: none. */
+function attachmentOf(msg: TgMessage): Attachment | undefined {
+  const doc = msg.document;
+  if (doc?.file_id && doc.file_unique_id) {
+    const mime = doc.mime_type ?? '';
+    if (mime === 'application/pdf' || IMAGE_MIME.has(mime)) {
+      return {
+        kind: mime === 'application/pdf' ? 'pdf' : 'image',
+        fileId: doc.file_id,
+        fileUniqueId: doc.file_unique_id,
+        mimeType: mime as Attachment['mimeType'],
+        sizeBytes: doc.file_size,
+      };
+    }
+    return undefined;
+  }
+  const largest = [...(msg.photo ?? [])]
+    .filter((p) => p.file_id && p.file_unique_id)
+    .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0];
+  if (!largest) return undefined;
+  return {
+    kind: 'image',
+    fileId: largest.file_id!,
+    fileUniqueId: largest.file_unique_id!,
+    mimeType: 'image/jpeg', // Telegram re-encodes photos as JPEG
+    sizeBytes: largest.file_size,
   };
 }
 

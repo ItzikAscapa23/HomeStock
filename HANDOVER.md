@@ -114,7 +114,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
-| `npm test` | passed — 8 files, 111 tests (15 receipt flow tests on a synthetic Shufersal-style receipt; Q3 variant fixtures) |
+| `npm test` | passed — 8 files, 114 tests (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
 | `npx cdk synth` | passed. No VpcConfig. Worker 180 s / 1024 MB, env adds `BUCKET_NAME`; worker bundle 45.8 kb, ingress 3.7 kb |
 | Real-model extraction of the real receipt | not run — no API keys in the cloud workspace; first live send is the test |
 | `npm run deploy` / live receipt | not run — needs the user's Mac |
@@ -149,6 +149,8 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **Receipts: whole file goes to the model (user decision).** The PDF/photo includes name, phone, address; sent to the routed provider as-is. Stored privately in the receipts bucket. Never committed, never logged in full.
 - **Receipts are sent in the private chat with the bot (user decision).** Files/photos in the group are ignored — family photos aren't receipts and receipt summaries are noisy (R25).
 - **New products from a receipt are confirmed in bulk (user decision):** one summary with "✓ add all new"; separate one-tap questions only for genuinely ambiguous lines. Satisfies R2's "surfaced, never silently dropped" without 25 messages.
+- **Receipt lines are merged before matching** — same code (or, without a code, same description) and same unit → one line, quantities summed. Real receipts print one product on several lines (Super-Pharm: one line per unit; Osher Ad: one per promo pair); unmerged, "add all" would create duplicate items.
+- **Receipt layouts checked so far** (user-supplied samples, never committed): Shufersal Online delivery note (4 pp., ordered vs supplied, negative promo lines, substitutions); Osher Ad via Pairzon (narrow thermal, **broken PDF text layer** — only the rendered page is readable, descriptions wrap across pages, price-less promo lines, kg produce, short internal codes); Super-Pharm tax invoice (one line per unit, card-payment line). The broken text layer is why the file goes to the model rather than text extraction.
 - **Item codes / barcodes are stored on items** (`codes`) and are the first resolution step for receipt lines — exact, language-free, local (R22).
 - **Q4 — LLM layer (user decision, 2026-10-31):** one domain interface in `src/llm/` (`complete<T>({ task, system, user, schema })` → typed JSON); callers name a *task*, never a model. **Two provider adapters from the start: Anthropic and OpenAI.** A routing config maps task → `{ provider, model }`, passed to the worker as an env var from CDK context — switching provider/model is a config change + deploy. Keys in SSM: `/homestock/llm/anthropic-api-key`, `/homestock/llm/openai-api-key`. No LangChain / Vercel AI SDK: bundle size, and they hide structured output, prompt caching and vision. A Hebrew fixture set (real messages → expected item) gates any routing change.
 

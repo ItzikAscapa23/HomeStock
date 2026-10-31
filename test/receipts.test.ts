@@ -324,3 +324,71 @@ describe('receipt edge cases', () => {
     });
   });
 });
+
+describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
+  it('drugstore receipt with one line per unit → one product, summed quantity, one new item', async () => {
+    // Super-Pharm style: the same barcode printed once per unit bought.
+    const s = setup();
+    s.llm.queue({
+      isReceipt: true,
+      store: 'סופר-פארם',
+      purchasedOn: '2026-10-23',
+      lines: [
+        { code: '7290000000011', description: 'קרם גוף מועשר', quantity: 1, unit: 'unit' },
+        { code: '7290000000011', description: 'קרם גוף מועשר', quantity: 1, unit: 'unit' },
+        { code: '7290000000011', description: 'קרם גוף מועשר', quantity: 1, unit: 'unit' },
+        { code: '7290000000028', description: 'משחת שיניים מקס פרש', quantity: 1, unit: 'unit' },
+      ],
+    });
+    s.llm.queue({
+      matches: [
+        { lineIndex: 0, itemId: null, confidence: 'low', newItem: { name: 'קרם גוף', category: 'hygiene' } },
+        { lineIndex: 1, itemId: 'toothpaste', confidence: 'high', newItem: null },
+      ],
+    });
+    const { replies } = await sendReceipt(s);
+    expect(replies[0]!.type === 'send' && replies[0]!.text).toContain('— 2 מוצרים');
+    expect(JSON.parse(s.llm.requests[1]!.user)).toHaveLength(2); // the matcher sees each product once
+
+    await s.d.handle(tap('r:p1:y'), {});
+    const creams = [...s.items.items.values()].filter((i) => i.name === 'קרם גוף');
+    expect(creams).toHaveLength(1);
+    expect(s.purchases.rows.find((p) => p.itemId === creams[0]!.id)).toMatchObject({ quantity: 3 });
+  });
+
+  it('merging keys on code, falls back to description, and never mixes kg with units', async () => {
+    const llm = new FakeLlm([
+      {
+        isReceipt: true,
+        store: 'אושר עד',
+        purchasedOn: '2026-04-09',
+        lines: [
+          { code: '8008343880138', description: 'פסטה לינגוויני ללא גלוטן', quantity: 2, unit: 'unit' },
+          { code: '8008343880138', description: 'פסטה לינגוויני ללא גל', quantity: 2, unit: 'unit' },
+          { code: null, description: 'עגבניות', quantity: 1.2, unit: 'kg' },
+          { code: null, description: 'עגבניות', quantity: 0.35, unit: 'kg' },
+          { code: null, description: 'עגבניות', quantity: 1, unit: 'unit' },
+          { code: '9000313', description: 'גזר', quantity: 2, unit: 'kg' },
+        ],
+      },
+    ]);
+    const r = await new ReceiptExtractor(llm).extract({ mediaType: 'application/pdf', base64: '' });
+    expect(r.lines.map((l) => [l.index, l.code, l.quantity, l.unit])).toEqual([
+      [0, '8008343880138', 4, 'unit'],
+      [1, null, 1.55, 'kg'],
+      [2, null, 1, 'unit'],
+      [3, '9000313', 2, 'kg'],
+    ]);
+  });
+
+  it('the extraction prompt covers wrapped descriptions, price-less promo lines and card payments', () => {
+    const llm = new FakeLlm([{ isReceipt: false, store: null, purchasedOn: null, lines: [] }]);
+    return new ReceiptExtractor(llm).extract({ mediaType: 'application/pdf', base64: '' }).then(() => {
+      const system = llm.requests[0]!.system;
+      expect(system).toContain('continue at the top of the next page');
+      expect(system).toContain('פסטה רומו 2 ב 20');
+      expect(system).toContain('כאל');
+      expect(system).toContain('Super-Pharm');
+    });
+  });
+});

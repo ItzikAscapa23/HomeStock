@@ -1,0 +1,43 @@
+{
+  "name": "homestock",
+  "version": "1.0.0",
+  "description": "Telegram bot for household inventory and shopping",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "synth": "cdk synth --quiet",
+    "diff": "cdk diff --profile homestock",
+    "deploy": "cdk diff --profile homestock && cdk deploy --profile homestock",
+    "webhook": "tsx scripts/set-webhook.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ItzikAscapa23/homestock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ItzikAscapa23/homestock/issues"
+  },
+  "homepage": "https://github.com/ItzikAscapa23/homestock#readme",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1161.0",
+    "@aws-sdk/client-lambda": "^3.1161.0",
+    "@aws-sdk/client-ssm": "^3.1161.0",
+    "aws-cdk-lib": "^2.275.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1161.0",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^22.20.5",
+    "aws-cdk": "^2.1147.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}

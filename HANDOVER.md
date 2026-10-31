@@ -132,7 +132,8 @@ Phase 0, 2026-10-31.
 
 ## Open questions / blockers
 
-- **Q4 — LLM provider / model routing.** Blocks phase 1's LLM fallback resolver. User decides; its API key goes in SSM.
+- **LLM API keys** — user to create Anthropic and OpenAI keys and store both in SSM (paths above). Blocks the phase 1 LLM fallback resolver only.
+- **Which models per task** — pick at phase 1 build time from current model lists; default to the small/fast tier for `resolve-item`.
 - **Tighten Ingress IAM** — it has `grantReadWriteData` on the table but needs only `PutItem`/`DeleteItem` for dedupe. Low risk; fix in phase 1.
 
 ---
@@ -155,4 +156,5 @@ Phase 0, 2026-10-31.
 
 - Bot replies to a live message — ✔ (`pong`, 2026-10-31)
 - Table and bucket names readable from this file — ✔
-- Q4 decided and the LLM API key stored in SSM — **open**
+- Q4 decided — ✔ (see Decisions)
+- Anthropic and OpenAI API keys stored in SSM — **open**

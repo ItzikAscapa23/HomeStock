@@ -2,7 +2,7 @@ import { CATEGORIES, CATEGORY_IDS, isCategoryId, type CategoryId } from '../doma
 import type { Item } from '../domain/item.js';
 import type { LlmClient, JsonSchema } from '../llm/types.js';
 import { matchLocally } from './local-match.js';
-import { normaliseAlias } from './normalise.js';
+import { detectIntent, normaliseAlias, type MessageIntent } from './normalise.js';
 import type { ItemRegistry } from './item-registry.js';
 
 export interface ResolvedItem {
@@ -19,7 +19,15 @@ export interface UnresolvedMention {
 }
 
 export type Resolution =
-  | { kind: 'items'; path: 'local' | 'llm'; resolved: ResolvedItem[]; unresolved: UnresolvedMention[]; llm?: { provider: string; model: string } }
+  | {
+      kind: 'items';
+      /** Ran out (R4), bought (R3, manual), or a question about stock (R27). */
+      intent: MessageIntent;
+      path: 'local' | 'llm';
+      resolved: ResolvedItem[];
+      unresolved: UnresolvedMention[];
+      llm?: { provider: string; model: string };
+    }
   /** Nothing item-like in the message (e.g. "תודה", or just "נגמר"). The bot stays quiet. */
   | { kind: 'not-a-report'; path: 'local' | 'llm'; llm?: { provider: string; model: string } };
 
@@ -36,20 +44,22 @@ export class Resolver {
 
   async resolve(text: string): Promise<Resolution> {
     const local = matchLocally(text, await this.registry.aliasIndex());
+    const lexical = detectIntent(text);
 
     if (local.contentWordCount === 0) return { kind: 'not-a-report', path: 'local' };
     if (local.leftover.length === 0) {
       return {
         kind: 'items',
+        intent: lexical.intent,
         path: 'local',
         resolved: local.matches.map((m) => ({ ...m, via: 'local' as const })),
         unresolved: [],
       };
     }
-    return this.resolveWithLlm(text);
+    return this.resolveWithLlm(text, lexical);
   }
 
-  private async resolveWithLlm(text: string): Promise<Resolution> {
+  private async resolveWithLlm(text: string, lexical: ReturnType<typeof detectIntent>): Promise<Resolution> {
     const items = await this.registry.all();
     const known = new Set(items.map((i) => i.id));
 
@@ -66,7 +76,9 @@ export class Resolver {
     );
     const llm = { provider, model };
 
-    if (!value.isReport || value.items.length === 0) return { kind: 'not-a-report', path: 'llm', llm };
+    if (value.intent === 'none' || value.items.length === 0) return { kind: 'not-a-report', path: 'llm', llm };
+    // Clear wording ("קניתי", "?") wins over the model; otherwise the model decides.
+    const intent: MessageIntent = lexical.explicit ? lexical.intent : value.intent;
 
     const resolved: ResolvedItem[] = [];
     const unresolved: UnresolvedMention[] = [];
@@ -89,14 +101,14 @@ export class Resolver {
           : undefined,
       });
     }
-    return { kind: 'items', path: 'llm', resolved, unresolved, llm };
+    return { kind: 'items', intent, path: 'llm', resolved, unresolved, llm };
   }
 }
 
 // ---------- prompt + schema ----------
 
 interface LlmResolution {
-  isReport: boolean;
+  intent: MessageIntent | 'none';
   items: {
     mention: string;
     itemId: string | null;
@@ -109,9 +121,9 @@ interface LlmResolution {
 const RESOLUTION_SCHEMA: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['isReport', 'items'],
+  required: ['intent', 'items'],
   properties: {
-    isReport: { type: 'boolean' },
+    intent: { type: 'string', enum: ['out', 'in', 'query', 'none'] },
     items: {
       type: 'array',
       items: {
@@ -150,15 +162,19 @@ function buildSystemPrompt(items: Item[]): string {
 
   return `You resolve household shopping messages written in Hebrew to items in a household's item registry.
 
-Messages come from a family Telegram group used only for shopping. A typical message reports
-that something ran out ("נגמר חלב", "אין לנו ביצים", "חסר נייר טואלט"). Hebrew is unvocalised,
+Messages come from a family Telegram group used only for shopping. A message is one of:
+- "out": something ran out or is needed ("נגמר חלב", "אין לנו ביצים", "חסר נייר טואלט", "תקנו לחם");
+- "in": something was bought or arrived ("קניתי חלב", "הבאתי ביצים", "נכנס קוטג'");
+- "query": a question about whether something is at home ("יש לנו ביצים?", "נשאר חלב?");
+- "none": anything else (thanks, chatter, a question that isn't about a product).
+Hebrew is unvocalised,
 prefixes fuse onto words (חלב / החלב / בחלב / והחלב), spelling varies, and shorthand is
 ambiguous (סבון could be dish soap, hand soap or laundry detergent).
 
 Rules:
-- isReport = false if the message names no product at all (thanks, chatter, a question). Then items = [].
+- intent: one of out / in / query / none as above. If it names no product at all, intent = "none" and items = [].
 - One entry per distinct product mentioned, in message order.
-- mention: the words naming the product as the user wrote them, without words like נגמר/אין/חסר/לנו or quantities.
+- mention: the words naming the product as the user wrote them, without words like נגמר/אין/חסר/קניתי/יש/לנו or quantities.
 - itemId: the registry id it refers to, or null if it is not in the registry.
 - confidence "high" only if you are sure which registry item is meant. If several items fit
   (e.g. a generic "סבון" with several soaps), use "low", put your best guess in itemId (or null)
@@ -175,12 +191,18 @@ ${registry}`;
 }
 
 function validateLlmResolution(json: unknown): LlmResolution {
-  const v = json as Partial<LlmResolution> | null;
-  if (!v || typeof v.isReport !== 'boolean' || !Array.isArray(v.items)) {
+  const v = json as (Partial<LlmResolution> & { isReport?: unknown }) | null;
+  const intent: LlmResolution['intent'] | undefined =
+    v?.intent === 'out' || v?.intent === 'in' || v?.intent === 'query' || v?.intent === 'none'
+      ? v.intent
+      : typeof v?.isReport === 'boolean' // pre-intent response shape
+        ? (v.isReport ? 'out' : 'none')
+        : undefined;
+  if (!v || !intent || !Array.isArray(v.items)) {
     throw new Error('LLM resolution: malformed response');
   }
   return {
-    isReport: v.isReport,
+    intent,
     items: v.items
       .filter((i) => i && typeof i.mention === 'string')
       .map((i) => ({

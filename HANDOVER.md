@@ -75,14 +75,21 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 
 ## Status
 
-- **Current phase:** 1.5 — Receipt ingestion (amendment, see Decisions)
-- **State:** `complete`
+- **Current phase:** 1.6 — Stock-in by text, item merge, stock questions (amendment, see Decisions)
+- **State:** `in-progress` — built and verified in the workspace; deploy + live check pending
 - **Phase 1:** `complete` — review gate (two weeks of family use) still applies to the predictive phases (2's interval learning, 3)
 - **Last updated:** 2026-10-31
 
 ---
 
 ## Current phase progress
+
+*Phase 1.6 (user-requested amendment, 2026-11-06, during the review window):*
+- [x] Intent per message: out / in (bought) / query — local wording first (`detectIntent`), LLM decides only when it's consulted anyway
+- [x] "קניתי חלב" → `Purchase` (source `manual`) + off the list; unknown items asked once, confirming records a purchase (R3)
+- [x] "יש לנו ביצים?" → one line from ground truth only (list / last bought / last reported out / no data) (R27, partial — no prediction)
+- [x] `/same A = B` → alias if A isn't an item; confirm-tap merge if it is (aliases, codes, purchases, list row; A deleted) (R21)
+- [ ] Deploy + live check: "קניתי חלב", "יש לנו ביצים?", `/same קוטג׳ 9% = קוטג׳`
 
 *Phase 2 — Stock in and interval learning. **Not started — blocked by the phase 1 review gate.** Items already delivered by phase 1.5 are marked; the rest is the remaining scope.*
 
@@ -104,7 +111,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
-| `npm test` | passed — 8 files, 120 tests (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
+| `npm test` | passed — 9 files, 141 tests (phase 1.6: intent, stock-in, stock questions, /same merge) (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
 | `npx cdk synth` | passed. No VpcConfig. Worker 180 s / 1024 MB, env adds `BUCKET_NAME`; worker bundle 45.8 kb, ingress 3.7 kb |
 | Live receipt #1 (Shufersal PDF) | first try **failed** (`Anthropic 400: tool_choice … not supported`, Sonnet 5.5) → fixed (`output_config.format`) → **passed**: 31 new items added in one tap, 4 ambiguous lines answered |
 | Live receipt #2 (Super-Pharm, file saved without `.pdf`) | first try **silent** (declared `application/octet-stream`) → fixed (bytes sniffed) → **passed**: 4 products (3 body-cream lines merged), 2 matched, 2 new. User feedback: summary hid matched names and all quantities → summary now names every product with ×qty / kg |
@@ -146,6 +153,11 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **Receipt lines are merged before matching** — same code (or, without a code, same description) and same unit → one line, quantities summed. Real receipts print one product on several lines (Super-Pharm: one line per unit; Osher Ad: one per promo pair); unmerged, "add all" would create duplicate items.
 - **Receipt layouts checked so far** (user-supplied samples, never committed): Shufersal Online delivery note (4 pp., ordered vs supplied, negative promo lines, substitutions); Osher Ad via Pairzon (narrow thermal, **broken PDF text layer** — only the rendered page is readable, descriptions wrap across pages, price-less promo lines, kg produce, short internal codes); Super-Pharm tax invoice (one line per unit, card-payment line). The broken text layer is why the file goes to the model rather than text extraction.
 - **Anthropic structured output = `output_config.format` (json_schema), not a forced tool call.** First live receipt failed: Sonnet 5.5 returns 400 for `tool_choice: tool/any` (migration guide, "forced tool use"). Native JSON-schema output works on Haiku 5.5 and Sonnet 5.5; JSON comes back in the text block (after any thinking block). `max_tokens` raised (receipt 16k, lines 8k, resolve 2k) because adaptive thinking spends from the same budget; truncation/refusal now fail loudly. Schemas stay within the documented limits (no min/max, ≤16 anyOf/type-array params).
+- **Phase 1.6 amendment (user, 2026-11-06):** stock-in by text, item merge and stock questions added during the review window. Small, and the first fixes a real bug: "קניתי חלב" used to be read as a depletion report. Caveat for the review: three new interactions muddy the "is phase 1 used" signal slightly.
+- **Intent is decided by wording first** (`src/registry/normalise.ts` `detectIntent`): "?" or opening יש/האם → query; past-tense bought/arrived words (קניתי, הבאנו, נכנס…) → in; else out. "קנו"/"קנה" excluded (also imperative "buy!"). The LLM returns an intent too and decides only when wording is not explicit. Intent words are stripped like fillers, so "קניתי חלב" resolves locally.
+- **Stock questions answer from ground truth only** until phase 2: on the list (reported date), last bought (and "not reported out since"), last reported out, or "no data". Never "we have it". Questions change no state and never ask back; unknown products → "לא מכיר: X".
+- **`/same A = B`** keeps B. If A names no item exactly, it becomes an alias of B (no confirm). If A is an item, one confirm tap merges it into B: name/aliases/codes move, later `lastOutAt` kept, purchases re-keyed, list row moved, A deleted. Household-level Q3 exception (user: "קוטג׳ 9%" = "קוטג׳"). **If you merge away a seeded item, remove it from `seed/registry.local.json`** — re-seeding would recreate it and abort on the alias collision.
+- **Manual purchases are recorded as quantity 1** (no quantity parsing from text yet).
 - **A receipt only clears list entries reported on or before its purchase day** (household-local date). A depletion report is ground truth (R5); a receipt from before it must not undo it. Purchases are still recorded regardless of date.
 - **The receipt summary names every product with its quantity** (×N for several units, kg for weighed) — a count alone ("✓ 2 recorded") couldn't be checked and wasn't trusted. Long receipts are clipped at Telegram's message limit.
 - **Receipt file type is sniffed from content** (`%PDF-`, JPEG/PNG/WebP magic bytes), never trusted from Telegram's MIME label or the file name. Any document in the private chat is a receipt candidate; anything unreadable or > 10 MB gets one line ("PDF or photo, up to 10MB") instead of silence.
@@ -205,7 +217,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 Phase 2 starts only when (plan.md review gate — **if the family isn't using it, stop and diagnose adoption instead**):
 - The family has used the bot for at least two weeks — earliest **2026-11-14**
 - At least 20 real depletion reports in the table. Count with:
-  `aws dynamodb query --profile homestock --table-name homestock --key-condition-expression "PK = :pk" --expression-attribute-values '{":pk":{"S":"MSG#2026-11"}}' --query "length(Items[?parsed.M.intent.S=='report'])"`
-  (repeat per month; `MSG#2026-10` holds the setup-day tests)
+  `aws dynamodb query --profile homestock --table-name homestock --key-condition-expression "PK = :pk" --expression-attribute-values '{":pk":{"S":"MSG#2026-11"}}' --query "length(Items[?parsed.M.intent.S=='out' || parsed.M.intent.S=='report'])"`
+  (repeat per month; `MSG#2026-10` holds the setup-day tests; since phase 1.6 reports log as `out`, bought as `in`, questions as `query`)
 - Plan.md's own phase 2 exit needs ≥15 items with a learned interval — receipts are the fastest way there; keep sending them
 - Review the message log for misresolutions; add each to `test/fixtures/hebrew-reports.json`

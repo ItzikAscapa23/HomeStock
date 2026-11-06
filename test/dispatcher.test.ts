@@ -5,7 +5,8 @@ import type { InboundCallback, InboundMessage, Reply } from '../src/domain/messa
 import { ItemRegistry } from '../src/registry/item-registry.js';
 import { Resolver } from '../src/registry/resolver.js';
 import { ShoppingList } from '../src/shopping/shopping-list.js';
-import { exampleItems, FakeLlm, MemItemStore, MemListStore, MemMessageLog, MemPendingStore } from './fakes.js';
+import { StockService } from '../src/inventory/stock.js';
+import { exampleItems, FakeLlm, MemItemStore, MemListStore, MemMessageLog, MemPendingStore, MemPurchaseStore } from './fakes.js';
 
 const GROUP = -100123;
 const STRANGER = 999;
@@ -16,24 +17,27 @@ function setup(llmAnswers: unknown[] = []) {
   const list = new MemListStore();
   const log = new MemMessageLog();
   const pending = new MemPendingStore();
+  const purchases = new MemPurchaseStore();
   const llm = new FakeLlm(llmAnswers);
   // Each container gets a fresh registry; `freshRegistry` simulates a cold start.
   const makeDispatcher = () => {
     const registry = new ItemRegistry(items);
     const gate: ChatGate = { isAllowed: async (id) => id === GROUP };
     let n = 0;
+    const shopping = new ShoppingList(items, list);
     return new Dispatcher({
       gate,
       registry,
       resolver: new Resolver(registry, llm),
-      shopping: new ShoppingList(items, list),
+      shopping,
       pending,
       log,
+      stock: new StockService(shopping, list, purchases, registry),
       newId: () => `ask${++n}`,
       logError: () => {},
     });
   };
-  return { items, list, log, pending, llm, d: makeDispatcher(), makeDispatcher };
+  return { items, list, log, pending, purchases, llm, d: makeDispatcher(), makeDispatcher };
 }
 
 let updateId = 1;
@@ -212,7 +216,7 @@ describe('raw message storage (R23)', () => {
       text: 'נגמר לנו החלב',
       raw,
       fromUserId: 42,
-      parsed: { intent: 'report', resolution: { kind: 'items', path: 'local', resolved: [{ itemId: 'milk', mention: 'החלב' }] } },
+      parsed: { intent: 'out', resolution: { kind: 'items', intent: 'out', path: 'local', resolved: [{ itemId: 'milk', mention: 'החלב' }] } },
     });
   });
 

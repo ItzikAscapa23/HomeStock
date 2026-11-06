@@ -20,6 +20,7 @@ export interface ItemStore {
   /** Adds a receipt item code if absent. */
   addCode(itemId: string, code: string): Promise<void>;
   markOut(itemId: string, at: Date): Promise<void>;
+  delete(itemId: string): Promise<void>;
 }
 
 export interface ListStore {
@@ -51,6 +52,8 @@ export interface MessageLog {
 export interface PendingAsk {
   /** Absent on rows written before receipts existed. */
   kind?: 'item';
+  /** What confirming does: mark out (default — rows written before stock-in existed) or record a purchase. */
+  action?: 'out' | 'in';
   id: string;
   chatId: number;
   /** The words the user wrote, normalised — becomes the alias on confirm (R21). */
@@ -91,7 +94,18 @@ export interface PendingReceiptLine {
   createdAt: string;
 }
 
-export type Pending = PendingAsk | PendingReceiptBatch | PendingReceiptLine;
+/** "/same A = B" waiting for a confirm tap: fold item A into item B. */
+export interface PendingMerge {
+  kind: 'merge';
+  id: string;
+  chatId: number;
+  sourceId: string;
+  targetId: string;
+  createdByUserId?: number;
+  createdAt: string;
+}
+
+export type Pending = PendingAsk | PendingReceiptBatch | PendingReceiptLine | PendingMerge;
 
 export interface PendingStore {
   put(p: Pending): Promise<void>;
@@ -103,6 +117,8 @@ export interface PendingStore {
 export interface PurchaseStore {
   add(purchases: Purchase[]): Promise<void>;
   listForItem(itemId: string): Promise<Purchase[]>;
+  /** Moves an item's whole purchase history to another item (merge). Returns how many rows moved. */
+  reassign(fromItemId: string, toItemId: string): Promise<number>;
 }
 
 /** Receipt bookkeeping. `claim` is the duplicate guard: the same file twice is recorded once. */
@@ -195,6 +211,10 @@ export class DynamoItemStore implements ItemStore {
         ExpressionAttributeValues: { ':at': at.toISOString() },
       }),
     );
+  }
+
+  async delete(itemId: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.table, Key: keys.item(itemId) }));
   }
 }
 
@@ -290,6 +310,20 @@ export class DynamoPendingStore implements PendingStore {
 
 export class DynamoPurchaseStore implements PurchaseStore {
   constructor(private readonly db: DynamoDBDocumentClient, private readonly table: string) {}
+
+  async reassign(fromItemId: string, toItemId: string): Promise<number> {
+    const rows = await this.listForItem(fromItemId);
+    await this.add(rows.map((p) => ({ ...p, itemId: toItemId })));
+    for (const p of rows) {
+      await this.db.send(
+        new DeleteCommand({
+          TableName: this.table,
+          Key: keys.purchase(fromItemId, p.purchasedOn, p.receiptId ?? p.source, p.lineIndex ?? 0),
+        }),
+      );
+    }
+    return rows.length;
+  }
 
   async add(purchases: Purchase[]): Promise<void> {
     for (const p of purchases) {

@@ -212,6 +212,9 @@ In the group:
 - `נגמר חלב` → `✓ חלב — ברשימה`
 - something not on your list, e.g. `נגמרה הקינואה` → buttons → tap **➕ חדש** → next time
   the same words are understood without asking
+- `קניתי חלב` → recorded as bought, and off the list
+- `יש לנו ביצים?` → what the bot knows (on the list / last bought / no data)
+- `/same קוטג׳ 9% = קוטג׳` → from now on both mean the same product (the name after `=` stays)
 - `/list` → the shopping list by supermarket section
 - a receipt PDF in the private chat → a summary of what was bought
 

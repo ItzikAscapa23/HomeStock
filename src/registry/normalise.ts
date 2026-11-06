@@ -23,6 +23,33 @@ const FILLER = new Set([
   'אחד', 'אחת', 'שני', 'שתי', 'שניים', 'שתיים', 'שלוש', 'שלושה', 'ארבע', 'ארבעה',
 ]);
 
+/**
+ * Stock-in markers: past-tense "bought / brought / arrived". Deliberately excludes "קנו" and
+ * "קנה", which are also imperatives ("buy!") — those stay depletion fillers or go to the LLM.
+ */
+const IN_WORDS = new Set([
+  'קניתי', 'קנינו', 'קנתה', 'הבאתי', 'הבאנו', 'הביא', 'הביאה', 'נכנס', 'נכנסה', 'נכנסו',
+  'הגיע', 'הגיעה', 'הגיעו', 'חידשתי', 'חידשנו', 'מילאתי', 'מילאנו',
+]);
+
+/** Question openers. Never part of an item's name. */
+const QUERY_OPENERS = new Set(['האם', 'יש']);
+
+export type MessageIntent = 'out' | 'in' | 'query';
+
+/**
+ * What a message is about, from wording alone: a question (a "?" or opening with האם / יש),
+ * a stock-in ("קניתי חלב"), otherwise a depletion report. `explicit` is false for the
+ * default — the LLM may then decide differently when it is consulted anyway.
+ */
+export function detectIntent(text: string): { intent: MessageIntent; explicit: boolean } {
+  const words = normalise(text).split(' ').filter(Boolean);
+  const first = words[0];
+  if (/[?？]/.test(text) || (first !== undefined && QUERY_OPENERS.has(first))) return { intent: 'query', explicit: true };
+  if (words.some((w) => prefixVariants(w).some((v) => IN_WORDS.has(v)))) return { intent: 'in', explicit: true };
+  return { intent: 'out', explicit: false };
+}
+
 /** Prefix letters that fuse onto the next word: ו ה ב ל מ ש כ (חלב / החלב / בחלב / והחלב). */
 const PREFIX_LETTERS = new Set(['ו', 'ה', 'ב', 'ל', 'מ', 'ש', 'כ']);
 const MAX_PREFIX_STRIP = 3;
@@ -66,7 +93,7 @@ export function prefixVariants(word: string): string[] {
 }
 
 export function isFiller(word: string): boolean {
-  return prefixVariants(word).some((v) => FILLER.has(v));
+  return prefixVariants(word).some((v) => FILLER.has(v) || IN_WORDS.has(v) || QUERY_OPENERS.has(v));
 }
 
 /** Normalised words with fillers removed — what's left should name items. */

@@ -7,6 +7,7 @@ import { PARAM_NAMES, SsmParamReader } from './config/params.js';
 import { SsmChatGate } from './dispatcher/chat-gate.js';
 import { Dispatcher } from './dispatcher/dispatcher.js';
 import { ReceiptFlow } from './dispatcher/receipt-flow.js';
+import { StockService } from './inventory/stock.js';
 import { AnthropicAdapter } from './llm/anthropic.js';
 import { OpenAiAdapter } from './llm/openai.js';
 import { parseRouting, RoutedLlmClient } from './llm/routing.js';
@@ -57,7 +58,10 @@ export function getContainer(): Container {
   const itemStore = new DynamoItemStore(db, table);
   const registry = new ItemRegistry(itemStore);
   const resolver = new Resolver(registry, llm);
-  const shopping = new ShoppingList(itemStore, new DynamoListStore(db, table));
+  const listStore = new DynamoListStore(db, table);
+  const shopping = new ShoppingList(itemStore, listStore);
+  const purchaseStore = new DynamoPurchaseStore(db, table);
+  const stock = new StockService(shopping, listStore, purchaseStore, registry);
 
   const pending = new DynamoPendingStore(db, table);
   const newId = () => randomUUID().replace(/-/g, '').slice(0, 10);
@@ -69,7 +73,7 @@ export function getContainer(): Container {
     extractor: new ReceiptExtractor(llm),
     lineResolver: new ReceiptLineResolver(registry, llm),
     registry,
-    purchases: new DynamoPurchaseStore(db, table),
+    purchases: purchaseStore,
     shopping,
   });
 
@@ -80,6 +84,7 @@ export function getContainer(): Container {
     shopping,
     pending,
     log: new DynamoMessageLog(db, table),
+    stock,
     receipts: new ReceiptFlow(receipts, pending, newId),
     newId,
   });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Dispatcher } from '../src/dispatcher/dispatcher.js';
 import { ReceiptFlow } from '../src/dispatcher/receipt-flow.js';
 import type { Attachment, InboundCallback, InboundMessage, Reply } from '../src/domain/message.js';
+import { StockService } from '../src/inventory/stock.js';
 import { ReceiptExtractor } from '../src/receipts/extractor.js';
 import { ReceiptLineResolver } from '../src/receipts/line-resolver.js';
 import { ReceiptService } from '../src/receipts/receipt-service.js';
@@ -88,6 +89,7 @@ function setup() {
     shopping,
     pending,
     log: new MemMessageLog(),
+    stock: new StockService(shopping, list, purchases, registry),
     receipts: new ReceiptFlow(receipts, pending, newId),
     newId,
     logError: () => {},

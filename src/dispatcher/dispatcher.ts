@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { CATEGORIES, type CategoryId } from '../domain/categories.js';
 import type { Item } from '../domain/item.js';
 import type { Button, Inbound, InboundCallback, InboundMessage, Reply } from '../domain/message.js';
-import type { MessageLog, PendingAsk, PendingStore } from '../persistence/stores.js';
+import type { StockService } from '../inventory/stock.js';
+import type { MessageLog, PendingAsk, PendingMerge, PendingStore } from '../persistence/stores.js';
 import type { ReceiptFlow } from './receipt-flow.js';
 import type { ItemRegistry } from '../registry/item-registry.js';
 import type { Resolution, Resolver, UnresolvedMention } from '../registry/resolver.js';
@@ -11,7 +12,7 @@ import type { ChatGate } from './chat-gate.js';
 
 /** All user-facing copy for this module (CLAUDE.md: one place per module). Replies are one line (R25). */
 const COPY = {
-  help: 'כתבו מה נגמר — למשל "נגמר חלב". /list מציג את רשימת הקניות.',
+  help: 'כתבו מה נגמר ("נגמר חלב"), מה קניתם ("קניתי חלב") או שאלו ("יש לנו ביצים?") · /list רשימת קניות · /same א = ב לאחד מוצרים',
   chatId: (chatId: number, userId: number | undefined) => `chat id: ${chatId}${userId ? ` · user id: ${userId}` : ''}`,
   added: (names: string) => `✓ ${names} — ברשימה`,
   alreadyListed: (names: string) => `${names} כבר ברשימה`,
@@ -21,6 +22,19 @@ const COPY = {
   cancelButton: '✕ לא משנה',
   createdItem: (name: string, category: CategoryId) => `✓ נוסף פריט חדש: ${name} (${CATEGORIES[category]}) — ברשימה`,
   cancelled: (mention: string) => `"${mention}" — בוטל`,
+  bought: (names: string) => `✓ נרשם שנקנה: ${names}`,
+  boughtCleared: (names: string, cleared: string) => `✓ נרשם שנקנה: ${names} · ירד מהרשימה: ${cleared}`,
+  createdBought: (name: string, category: CategoryId) => `✓ נוסף פריט חדש: ${name} (${CATEGORIES[category]}) — נרשם שנקנה`,
+  unknownInQuery: (mentions: string) => `לא מכיר: ${mentions}`,
+  sameUsage: 'כתבו כך: /same קוטג׳ 9% = קוטג׳ (השם אחרי ה-= נשאר)',
+  sameUnknownTarget: (t: string) => `לא מכיר את "${t}" — כתבו את השם כפי שמופיע ב-/list`,
+  sameAlready: (s: string, t: string) => `"${s}" כבר = ${t}`,
+  sameAliased: (s: string, t: string) => `✓ מעכשיו "${s}" = ${t}`,
+  mergeAsk: (s: string, t: string) => `🔀 לאחד את "${s}" לתוך "${t}"? היסטוריית הקניות עוברת, "${s}" יימחק`,
+  mergeYes: '✓ אחד',
+  mergeNo: '✕ ביטול',
+  merged: (s: string, t: string, moved: number) => `✓ "${s}" אוחד לתוך "${t}"${moved ? ` (${moved} קניות עברו)` : ''}`,
+  mergeCancelled: 'האיחוד בוטל',
   stale: 'כבר טופל',
   failed: 'לא הצלחתי לעבד את זה כרגע — נסו שוב בעוד רגע',
 } as const;
@@ -34,6 +48,7 @@ export interface DispatcherDeps {
   shopping: ShoppingList;
   pending: PendingStore;
   log: MessageLog;
+  stock: StockService;
   receipts?: ReceiptFlow;
   newId?: () => string;
   logError?: (msg: string, err: unknown) => void;
@@ -103,37 +118,51 @@ export class Dispatcher {
         return [{ intent: 'help' }, [{ type: 'send', text: COPY.help }]];
       case 'list':
         return [{ intent: 'list' }, [{ type: 'send', text: await this.listText() }]];
+      case 'same':
+        return this.onSame(event);
       default:
         return [{ intent: 'unknown-command', command: event.command }, []];
     }
   }
 
-  // ---------- depletion report (R4) ----------
+  // ---------- free text: ran out (R4), bought (R3), question (R27) ----------
 
   private async onReport(msg: InboundMessage): Promise<[Record<string, unknown>, Reply[]]> {
     const resolution = await this.d.resolver.resolve(msg.text);
-    const parsed = { intent: 'report', resolution: summarise(resolution) };
+    const parsed = { intent: resolution.kind === 'items' ? resolution.intent : 'report', resolution: summarise(resolution) };
     if (resolution.kind === 'not-a-report') return [parsed, []];
-
-    const replies: Reply[] = [];
 
     // Items the LLM resolved confidently become aliases, so next time they resolve locally (R21, R22).
     for (const r of resolution.resolved) if (r.via === 'llm') await this.d.registry.learnAlias(r.itemId, r.mention);
-
     const items = await this.itemsFor(resolution.resolved.map((r) => r.itemId));
-    if (items.length > 0) {
-      const outcome = await this.d.shopping.reportOut(items, msg.fromUserId, msg.receivedAt);
-      replies.push({ type: 'send', text: confirmation(outcome) });
+
+    if (resolution.intent === 'query') {
+      // A question never changes state and never asks back — one line (R25, R27).
+      const parts = items.length > 0 ? [await this.d.stock.describe(items)] : [];
+      if (resolution.unresolved.length > 0) parts.push(COPY.unknownInQuery(resolution.unresolved.map((u) => u.mention).join(', ')));
+      return [parsed, parts.length ? [{ type: 'send', text: parts.join(' · ') }] : []];
     }
 
-    for (const u of resolution.unresolved) replies.push(await this.ask(msg, u));
+    const replies: Reply[] = [];
+    if (items.length > 0) {
+      if (resolution.intent === 'in') {
+        const { cleared } = await this.d.stock.recordBought(items, msg.fromUserId, msg.receivedAt);
+        replies.push({ type: 'send', text: boughtLine(items, cleared) });
+      } else {
+        const outcome = await this.d.shopping.reportOut(items, msg.fromUserId, msg.receivedAt);
+        replies.push({ type: 'send', text: confirmation(outcome) });
+      }
+    }
+
+    for (const u of resolution.unresolved) replies.push(await this.ask(msg, u, resolution.intent));
     return [parsed, replies];
   }
 
-  private async ask(msg: InboundMessage, u: UnresolvedMention): Promise<Reply> {
+  private async ask(msg: InboundMessage, u: UnresolvedMention, action: 'out' | 'in'): Promise<Reply> {
     const proposal = u.proposal ?? { name: u.mention, category: 'household' as const };
     const ask: PendingAsk = {
       id: this.newId(),
+      action,
       chatId: msg.chatId,
       mention: u.mention,
       candidateItemIds: u.candidateItemIds,
@@ -159,6 +188,7 @@ export class Dispatcher {
     if ((prefix === 'r' || prefix === 'l') && askId && choice && this.d.receipts) {
       return this.d.receipts.onCallback(cb, prefix, askId, choice);
     }
+    if (prefix === 'm' && askId && choice) return this.onMergeTap(cb, askId, choice);
     if (prefix !== CALLBACK_PREFIX || !askId || !choice) {
       return [{ intent: 'callback-unknown' }, [{ type: 'ack', callbackId: cb.callbackId }]];
     }
@@ -181,6 +211,10 @@ export class Dispatcher {
       const proposal = ask.proposal ?? { name: ask.mention, category: 'household' };
       const category = (proposal.category in CATEGORIES ? proposal.category : 'household') as CategoryId;
       const item = await this.d.registry.create({ name: proposal.name, category, mention: ask.mention, at: cb.receivedAt });
+      if (ask.action === 'in') {
+        await this.d.stock.recordBought([item], cb.fromUserId, cb.receivedAt);
+        return [{ intent: 'item-created', askId, itemId: item.id }, [ack, edit(COPY.createdBought(item.name, category))]];
+      }
       await this.d.shopping.reportOut([item], cb.fromUserId, cb.receivedAt);
       return [{ intent: 'item-created', askId, itemId: item.id }, [ack, edit(COPY.createdItem(item.name, category))]];
     }
@@ -190,8 +224,69 @@ export class Dispatcher {
     if (!item) return [{ intent: 'callback-bad-choice', askId }, [{ ...ack, text: COPY.stale }]];
 
     await this.d.registry.learnAlias(item.id, ask.mention); // the user's confirmation is the alias (R21)
+    if (ask.action === 'in') {
+      const { cleared } = await this.d.stock.recordBought([item], cb.fromUserId, cb.receivedAt);
+      return [{ intent: 'ask-answered', askId, itemId: item.id }, [ack, edit(boughtLine([item], cleared))]];
+    }
     const outcome = await this.d.shopping.reportOut([item], cb.fromUserId, cb.receivedAt);
     return [{ intent: 'ask-answered', askId, itemId: item.id }, [ack, edit(confirmation(outcome))]];
+  }
+
+  // ---------- /same A = B: "these are the same product for us" (R21) ----------
+
+  private async onSame(msg: InboundMessage): Promise<[Record<string, unknown>, Reply[]]> {
+    const args = msg.text.replace(/^\/\S+\s*/, '');
+    const parts = args.split('=').map((p) => p.trim());
+    const [left, right] = parts;
+    if (parts.length !== 2 || !left || !right) return [{ intent: 'same-usage' }, [{ type: 'send', text: COPY.sameUsage }]];
+
+    const target = await this.d.registry.findExact(right);
+    if (!target) return [{ intent: 'same-unknown-target' }, [{ type: 'send', text: COPY.sameUnknownTarget(right) }]];
+
+    const source = await this.d.registry.findExact(left);
+    if (source?.id === target.id) return [{ intent: 'same-already' }, [{ type: 'send', text: COPY.sameAlready(left, target.name) }]];
+    if (!source) {
+      // Not an item of its own — just another way of saying the target.
+      await this.d.registry.learnAlias(target.id, left);
+      return [{ intent: 'same-alias', itemId: target.id }, [{ type: 'send', text: COPY.sameAliased(left, target.name) }]];
+    }
+
+    // Two existing items: merging deletes one, so it takes a confirm tap.
+    const ask: PendingMerge = {
+      kind: 'merge',
+      id: this.newId(),
+      chatId: msg.chatId,
+      sourceId: source.id,
+      targetId: target.id,
+      ...(msg.fromUserId !== undefined && { createdByUserId: msg.fromUserId }),
+      createdAt: msg.receivedAt.toISOString(),
+    };
+    await this.d.pending.put(ask);
+    return [
+      { intent: 'same-merge-asked', sourceId: source.id, targetId: target.id },
+      [
+        {
+          type: 'send',
+          text: COPY.mergeAsk(source.name, target.name),
+          buttons: [[{ text: COPY.mergeYes, data: `m:${ask.id}:y` }, { text: COPY.mergeNo, data: `m:${ask.id}:n` }]],
+        },
+      ],
+    ];
+  }
+
+  private async onMergeTap(cb: InboundCallback, id: string, choice: string): Promise<[Record<string, unknown>, Reply[]]> {
+    const ack: Reply = { type: 'ack', callbackId: cb.callbackId };
+    const p = await this.d.pending.take(id);
+    if (!p || p.kind !== 'merge') return [{ intent: 'callback-stale' }, [{ ...ack, text: COPY.stale }]];
+    const edit = (text: string): Reply => ({ type: 'edit', messageId: cb.messageId, text });
+    if (choice !== 'y') return [{ intent: 'merge-cancelled' }, [ack, edit(COPY.mergeCancelled)]];
+
+    const { source, target } = await this.d.registry.merge(p.sourceId, p.targetId);
+    const moved = await this.d.stock.mergeInto(source.id, target.id);
+    return [
+      { intent: 'merged', sourceId: source.id, targetId: target.id, purchasesMoved: moved },
+      [ack, edit(COPY.merged(source.name, target.name, moved))],
+    ];
   }
 
   // ---------- helpers ----------
@@ -223,11 +318,17 @@ function confirmation(o: ReportOutcome): string {
   return COPY.alreadyListed(names(o.alreadyListed));
 }
 
+function boughtLine(items: Item[], cleared: Item[]): string {
+  const names = items.map((i) => i.name).join(', ');
+  return cleared.length ? COPY.boughtCleared(names, cleared.map((i) => i.name).join(', ')) : COPY.bought(names);
+}
+
 /** What goes into the message log next to the raw text (R23). */
 function summarise(r: Resolution): Record<string, unknown> {
   if (r.kind === 'not-a-report') return { kind: r.kind, path: r.path, ...(r.llm && { llm: r.llm }) };
   return {
     kind: r.kind,
+    intent: r.intent,
     path: r.path,
     resolved: r.resolved,
     unresolved: r.unresolved,

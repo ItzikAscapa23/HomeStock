@@ -52,6 +52,9 @@ export class MemItemStore implements ItemStore {
     if (!i) throw new Error('no such item');
     i.lastOutAt = at.toISOString();
   }
+  async delete(id: string) {
+    this.items.delete(id);
+  }
 }
 
 export class MemListStore implements ListStore {
@@ -117,6 +120,11 @@ export class MemPurchaseStore implements PurchaseStore {
   }
   async listForItem(itemId: string) {
     return this.rows.filter((r) => r.itemId === itemId);
+  }
+  async reassign(from: string, to: string) {
+    const moving = this.rows.filter((r) => r.itemId === from);
+    for (const r of moving) r.itemId = to;
+    return moving.length;
   }
 }
 

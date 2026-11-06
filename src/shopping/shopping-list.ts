@@ -32,6 +32,7 @@ export class ShoppingList {
     const outcome: ReportOutcome = { added: [], alreadyListed: [] };
     for (const item of reported) {
       await this.items.markOut(item.id, at);
+      item.lastOutAt = at.toISOString(); // keep the registry's cached copy current for questions asked right after
       const added = await this.list.addIfAbsent({
         itemId: item.id,
         reason: 'out',

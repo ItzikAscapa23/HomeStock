@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CategoryId } from '../domain/categories.js';
 import type { Item } from '../domain/item.js';
 import type { ItemStore } from '../persistence/stores.js';
+import { matchLocally } from './local-match.js';
 import { normaliseAlias } from './normalise.js';
 
 const CACHE_TTL_MS = 60_000;
@@ -33,6 +34,14 @@ export class ItemRegistry {
     return (await this.load()).aliases;
   }
 
+  /** The single item the text names exactly (alias match covering every word), or undefined. */
+  async findExact(text: string): Promise<Item | undefined> {
+    const r = matchLocally(text, await this.aliasIndex());
+    const only = r.matches[0];
+    if (r.leftover.length > 0 || r.matches.length !== 1 || !only) return undefined;
+    return this.get(only.itemId);
+  }
+
   /** item code / barcode → item id */
   async codeIndex(): Promise<ReadonlyMap<string, string>> {
     return (await this.load()).codes;
@@ -60,6 +69,32 @@ export class ItemRegistry {
     await this.store.addAlias(itemId, alias);
     item.aliases.push(alias);
     if (!cache.aliases.has(alias)) cache.aliases.set(alias, itemId);
+  }
+
+  /**
+   * Folds `sourceId` into `targetId` (user said they are the same product): the target gains
+   * the source's name, aliases and codes, keeps the later "out" date, and the source is deleted.
+   * Purchase history and list rows are moved by the caller (they live in other stores).
+   */
+  async merge(sourceId: string, targetId: string): Promise<{ source: Item; target: Item }> {
+    const cache = await this.load();
+    const source = cache.items.get(sourceId);
+    const target = cache.items.get(targetId);
+    if (!source || !target) throw new Error('merge: item not found');
+    if (sourceId === targetId) throw new Error('merge: same item');
+
+    const merged: Item = {
+      ...target,
+      aliases: [...new Set([...target.aliases, ...[source.name, ...source.aliases].map(normaliseAlias).filter(Boolean)])],
+      ...((target.codes?.length || source.codes?.length) && {
+        codes: [...new Set([...(target.codes ?? []), ...(source.codes ?? [])])],
+      }),
+      ...(laterOf(target.lastOutAt, source.lastOutAt) && { lastOutAt: laterOf(target.lastOutAt, source.lastOutAt) }),
+    };
+    await this.store.put(merged);
+    await this.store.delete(sourceId);
+    this.cache = undefined; // aliases/codes moved — rebuild on next read
+    return { source, target: merged };
   }
 
   async create(input: {
@@ -110,4 +145,10 @@ export class ItemRegistry {
 export function normaliseCode(code: string | null | undefined): string | undefined {
   const c = (code ?? '').replace(/[^0-9a-z]/gi, '');
   return c.length >= 3 ? c : undefined;
+}
+
+function laterOf(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
 }

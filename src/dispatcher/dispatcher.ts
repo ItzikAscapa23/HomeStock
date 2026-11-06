@@ -3,7 +3,7 @@ import { CATEGORIES, type CategoryId } from '../domain/categories.js';
 import type { Item } from '../domain/item.js';
 import type { Button, Inbound, InboundCallback, InboundMessage, Reply } from '../domain/message.js';
 import type { StockService } from '../inventory/stock.js';
-import type { MessageLog, PendingAsk, PendingMerge, PendingStore } from '../persistence/stores.js';
+import type { MessageLog, PendingAsk, PendingMerge, PendingSamePick, PendingStore } from '../persistence/stores.js';
 import type { ReceiptFlow } from './receipt-flow.js';
 import type { ItemRegistry } from '../registry/item-registry.js';
 import type { Resolution, Resolver, UnresolvedMention } from '../registry/resolver.js';
@@ -27,7 +27,10 @@ const COPY = {
   createdBought: (name: string, category: CategoryId) => `✓ נוסף פריט חדש: ${name} (${CATEGORIES[category]}) — נרשם שנקנה`,
   unknownInQuery: (mentions: string) => `לא מכיר: ${mentions}`,
   sameUsage: 'כתבו כך: /same קוטג׳ 9% = קוטג׳ (השם אחרי ה-= נשאר)',
-  sameUnknownTarget: (t: string) => `לא מכיר את "${t}" — כתבו את השם כפי שמופיע ב-/list`,
+  sameUnknownTarget: (t: string) => `לא מכיר את "${t}". השמות המדויקים: /list`,
+  samePick: (t: string) => `לא מכיר בדיוק את "${t}" — התכוונתם ל:`,
+  samePickMerge: (name: string) => `🔀 ${name}`,
+  samePickAlias: (name: string) => `= ${name}`,
   sameAlready: (s: string, t: string) => `"${s}" כבר = ${t}`,
   sameAliased: (s: string, t: string) => `✓ מעכשיו "${s}" = ${t}`,
   mergeAsk: (s: string, t: string) => `🔀 לאחד את "${s}" לתוך "${t}"? היסטוריית הקניות עוברת, "${s}" יימחק`,
@@ -189,6 +192,7 @@ export class Dispatcher {
       return this.d.receipts.onCallback(cb, prefix, askId, choice);
     }
     if (prefix === 'm' && askId && choice) return this.onMergeTap(cb, askId, choice);
+    if (prefix === 's' && askId && choice) return this.onSamePickTap(cb, askId, choice);
     if (prefix !== CALLBACK_PREFIX || !askId || !choice) {
       return [{ intent: 'callback-unknown' }, [{ type: 'ack', callbackId: cb.callbackId }]];
     }
@@ -241,8 +245,41 @@ export class Dispatcher {
     if (parts.length !== 2 || !left || !right) return [{ intent: 'same-usage' }, [{ type: 'send', text: COPY.sameUsage }]];
 
     const target = await this.d.registry.findExact(right);
-    if (!target) return [{ intent: 'same-unknown-target' }, [{ type: 'send', text: COPY.sameUnknownTarget(right) }]];
+    if (!target) {
+      const candidates = await this.d.registry.search(right);
+      if (candidates.length === 0) return [{ intent: 'same-unknown-target' }, [{ type: 'send', text: COPY.sameUnknownTarget(right) }]];
+      const source = await this.d.registry.findExact(left);
+      const pick: PendingSamePick = {
+        kind: 'same-pick',
+        id: this.newId(),
+        chatId: msg.chatId,
+        left,
+        candidateIds: candidates.map((c) => c.id),
+        ...(msg.fromUserId !== undefined && { createdByUserId: msg.fromUserId }),
+        createdAt: msg.receivedAt.toISOString(),
+      };
+      await this.d.pending.put(pick);
+      // The tap is the confirmation, so the button says what it will do: merge (🔀) or just alias (=).
+      const label = (c: Item) => (source && source.id !== c.id ? COPY.samePickMerge(c.name) : COPY.samePickAlias(c.name));
+      return [
+        { intent: 'same-pick-asked', candidates: pick.candidateIds },
+        [
+          {
+            type: 'send',
+            text: COPY.samePick(right),
+            buttons: [
+              ...candidates.map((c, i) => [{ text: label(c), data: `s:${pick.id}:${i}` }]),
+              [{ text: COPY.mergeNo, data: `s:${pick.id}:x` }],
+            ],
+          },
+        ],
+      ];
+    }
+    return this.sameWithTarget(msg, left, target);
+  }
 
+  /** "/same left = target" once the target is known: alias, already-same, or ask to merge. */
+  private async sameWithTarget(msg: InboundMessage, left: string, target: Item): Promise<[Record<string, unknown>, Reply[]]> {
     const source = await this.d.registry.findExact(left);
     if (source?.id === target.id) return [{ intent: 'same-already' }, [{ type: 'send', text: COPY.sameAlready(left, target.name) }]];
     if (!source) {
@@ -271,6 +308,29 @@ export class Dispatcher {
           buttons: [[{ text: COPY.mergeYes, data: `m:${ask.id}:y` }, { text: COPY.mergeNo, data: `m:${ask.id}:n` }]],
         },
       ],
+    ];
+  }
+
+  /** A tap on a "did you mean" button from /same: the tap itself confirms (its label said merge or alias). */
+  private async onSamePickTap(cb: InboundCallback, id: string, choice: string): Promise<[Record<string, unknown>, Reply[]]> {
+    const ack: Reply = { type: 'ack', callbackId: cb.callbackId };
+    const p = await this.d.pending.take(id);
+    if (!p || p.kind !== 'same-pick') return [{ intent: 'callback-stale' }, [{ ...ack, text: COPY.stale }]];
+    const edit = (text: string): Reply => ({ type: 'edit', messageId: cb.messageId, text });
+    const target = choice === 'x' ? undefined : await this.d.registry.get(p.candidateIds[Number(choice)] ?? '');
+    if (!target) return [{ intent: 'same-pick-cancelled' }, [ack, edit(COPY.mergeCancelled)]];
+
+    const source = await this.d.registry.findExact(p.left);
+    if (source?.id === target.id) return [{ intent: 'same-already' }, [ack, edit(COPY.sameAlready(p.left, target.name))]];
+    if (!source) {
+      await this.d.registry.learnAlias(target.id, p.left);
+      return [{ intent: 'same-alias', itemId: target.id }, [ack, edit(COPY.sameAliased(p.left, target.name))]];
+    }
+    const { source: gone, target: kept } = await this.d.registry.merge(source.id, target.id);
+    const moved = await this.d.stock.mergeInto(gone.id, kept.id);
+    return [
+      { intent: 'merged', sourceId: gone.id, targetId: kept.id, purchasesMoved: moved },
+      [ack, edit(COPY.merged(gone.name, kept.name, moved))],
     ];
   }
 

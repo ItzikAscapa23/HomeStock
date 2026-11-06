@@ -89,7 +89,9 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 - [x] "קניתי חלב" → `Purchase` (source `manual`) + off the list; unknown items asked once, confirming records a purchase (R3)
 - [x] "יש לנו ביצים?" → one line from ground truth only (list / last bought / last reported out / no data) (R27, partial — no prediction)
 - [x] `/same A = B` → alias if A isn't an item; confirm-tap merge if it is (aliases, codes, purchases, list row; A deleted) (R21)
-- [ ] Deploy + live check: "קניתי חלב", "יש לנו ביצים?", `/same קוטג׳ 9% = קוטג׳`
+- [x] Live: `/same` merges done by the user (גרעיני חמניה קלויים → שחורים, אפיפית שוקולד → וופלים ללא גלוטן) — worked, but the target had to be typed exactly (two misses)
+- [x] `/same` "did you mean": a non-exact target offers up to 3 items as buttons; the tap is the confirmation (label shows 🔀 merge or = alias)
+- [ ] Deploy + live check: "קניתי חלב", "יש לנו ביצים?", a paper-receipt photo, `/same X = <partial name>`
 
 *Phase 2 — Stock in and interval learning. **Not started — blocked by the phase 1 review gate.** Items already delivered by phase 1.5 are marked; the rest is the remaining scope.*
 
@@ -111,7 +113,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
-| `npm test` | passed — 9 files, 141 tests (phase 1.6: intent, stock-in, stock questions, /same merge) (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
+| `npm test` | passed — 9 files, 144 tests (phase 1.6: intent, stock-in, stock questions, /same merge) (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
 | `npx cdk synth` | passed. No VpcConfig. Worker 180 s / 1024 MB, env adds `BUCKET_NAME`; worker bundle 45.8 kb, ingress 3.7 kb |
 | Live receipt #1 (Shufersal PDF) | first try **failed** (`Anthropic 400: tool_choice … not supported`, Sonnet 5.5) → fixed (`output_config.format`) → **passed**: 31 new items added in one tap, 4 ambiguous lines answered |
 | Live receipt #2 (Super-Pharm, file saved without `.pdf`) | first try **silent** (declared `application/octet-stream`) → fixed (bytes sniffed) → **passed**: 4 products (3 body-cream lines merged), 2 matched, 2 new. User feedback: summary hid matched names and all quantities → summary now names every product with ×qty / kg |
@@ -157,6 +159,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **Intent is decided by wording first** (`src/registry/normalise.ts` `detectIntent`): "?" or opening יש/האם → query; past-tense bought/arrived words (קניתי, הבאנו, נכנס…) → in; else out. "קנו"/"קנה" excluded (also imperative "buy!"). The LLM returns an intent too and decides only when wording is not explicit. Intent words are stripped like fillers, so "קניתי חלב" resolves locally.
 - **Stock questions answer from ground truth only** until phase 2: on the list (reported date), last bought (and "not reported out since"), last reported out, or "no data". Never "we have it". Questions change no state and never ask back; unknown products → "לא מכיר: X".
 - **`/same A = B`** keeps B. If A names no item exactly, it becomes an alias of B (no confirm). If A is an item, one confirm tap merges it into B: name/aliases/codes move, later `lastOutAt` kept, purchases re-keyed, list row moved, A deleted. Household-level Q3 exception (user: "קוטג׳ 9%" = "קוטג׳"). **If you merge away a seeded item, remove it from `seed/registry.local.json`** — re-seeding would recreate it and abort on the alias collision.
+- **`/same` suggestions** (`ItemRegistry.search`): items whose name/alias contains every typed word; the word as typed first, prefix-stripped forms (≥ 3 letters) only if nothing matched — "פל" matched פלפלים. Suggestions only; never used for message resolution. Only the target (after `=`) gets suggestions; a non-exact left side becomes an alias, not a merge.
 - **Manual purchases are recorded as quantity 1** (no quantity parsing from text yet).
 - **A receipt only clears list entries reported on or before its purchase day** (household-local date). A depletion report is ground truth (R5); a receipt from before it must not undo it. Purchases are still recorded regardless of date.
 - **The receipt summary names every product with its quantity** (×N for several units, kg for weighed) — a count alone ("✓ 2 recorded") couldn't be checked and wasn't trusted. Long receipts are clipped at Telegram's message limit.

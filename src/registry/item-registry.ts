@@ -3,7 +3,7 @@ import type { CategoryId } from '../domain/categories.js';
 import type { Item } from '../domain/item.js';
 import type { ItemStore } from '../persistence/stores.js';
 import { matchLocally } from './local-match.js';
-import { normaliseAlias } from './normalise.js';
+import { contentWords, normaliseAlias, prefixVariants } from './normalise.js';
 
 const CACHE_TTL_MS = 60_000;
 
@@ -40,6 +40,26 @@ export class ItemRegistry {
     const only = r.matches[0];
     if (r.leftover.length > 0 || r.matches.length !== 1 || !only) return undefined;
     return this.get(only.itemId);
+  }
+
+  /**
+   * Items whose name or an alias contains every word of `text` (fused prefixes ignored),
+   * shortest name first — "וופל" finds "וופלים ללא גלוטן". For suggestions, never for resolution.
+   */
+  async search(text: string, limit = 3): Promise<Item[]> {
+    const words = contentWords(text);
+    if (words.length === 0) return [];
+    const items = await this.all();
+    const find = (variants: string[][]) =>
+      items.filter((item) => {
+        const names = [item.name, ...item.aliases].map(normaliseAlias);
+        return variants.every((vs) => vs.some((v) => names.some((n) => n.includes(v))));
+      });
+    // The word as typed first; peel fused prefixes only if that finds nothing ("הוופל" → "וופל"),
+    // and never below 3 letters — "פל" would match פלפלים and קורנפלקס.
+    let hits = find(words.map((w) => [w]));
+    if (hits.length === 0) hits = find(words.map((w) => prefixVariants(w).filter((v) => v.length >= 3)));
+    return hits.sort((a, b) => a.name.length - b.name.length).slice(0, limit);
   }
 
   /** item code / barcode → item id */

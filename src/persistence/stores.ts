@@ -105,7 +105,19 @@ export interface PendingMerge {
   createdAt: string;
 }
 
-export type Pending = PendingAsk | PendingReceiptBatch | PendingReceiptLine | PendingMerge;
+/** "/same A = B" where B wasn't exact: the user picks which item B meant. */
+export interface PendingSamePick {
+  kind: 'same-pick';
+  id: string;
+  chatId: number;
+  /** A, as typed. */
+  left: string;
+  candidateIds: string[];
+  createdByUserId?: number;
+  createdAt: string;
+}
+
+export type Pending = PendingAsk | PendingReceiptBatch | PendingReceiptLine | PendingMerge | PendingSamePick;
 
 export interface PendingStore {
   put(p: Pending): Promise<void>;

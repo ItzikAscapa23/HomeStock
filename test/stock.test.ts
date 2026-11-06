@@ -223,7 +223,53 @@ describe('/same — "these are the same product for us" (R21)', () => {
     expect((await s.d.handle(tap('m:x1:y'), {}))[0]).toMatchObject({ type: 'ack', text: 'כבר טופל' });
 
     expect(text((await s.d.handle(cmd('/same'), {}))[0])).toBe('כתבו כך: /same קוטג׳ 9% = קוטג׳ (השם אחרי ה-= נשאר)');
-    expect(text((await s.d.handle(cmd('/same קוטג׳ = גבינת שמנת'), {}))[0])).toBe('לא מכיר את "גבינת שמנת" — כתבו את השם כפי שמופיע ב-/list');
+    expect(text((await s.d.handle(cmd('/same קוטג׳ = גבינת שמנת'), {}))[0])).toBe('לא מכיר את "גבינת שמנת". השמות המדויקים: /list');
     expect(text((await s.d.handle(cmd('/same חלב = חלב 3%'), {}))[0])).toBe('"חלב" כבר = חלב 3%');
+  });
+});
+
+describe('/same — "did you mean" when the target is not exact', () => {
+  const waffles = {
+    id: 'i-waf', name: 'וופלים ללא גלוטן', category: 'snacks' as const, aliases: ['וופלים ללא גלוטן'],
+    flags: { staple: false, nonCyclic: false }, createdAt: 'x',
+  };
+  const wafer = {
+    id: 'i-wfr', name: 'אפיפית שוקולד', category: 'snacks' as const, aliases: ['אפיפית שוקולד'],
+    flags: { staple: false, nonCyclic: false }, createdAt: 'x',
+  };
+
+  it('"וופל" offers "וופלים ללא גלוטן"; one tap merges (the button says 🔀)', async () => {
+    const s = setup();
+    s.items.items.set(waffles.id, structuredClone(waffles));
+    s.items.items.set(wafer.id, structuredClone(wafer));
+    const [r] = await s.d.handle(cmd('/same אפיפית שוקולד = וופל'), {});
+    expect(r).toMatchObject({
+      type: 'send',
+      text: 'לא מכיר בדיוק את "וופל" — התכוונתם ל:',
+      buttons: [[{ text: '🔀 וופלים ללא גלוטן', data: 's:x1:0' }], [{ text: '✕ ביטול', data: 's:x1:x' }]],
+    });
+    const done = await s.d.handle(tap('s:x1:0'), {});
+    expect(text(done[1])).toBe('✓ "אפיפית שוקולד" אוחד לתוך "וופלים ללא גלוטן"');
+    expect(s.items.items.has('i-wfr')).toBe(false);
+  });
+
+  it('when the first name is not an item, the button only adds a name (=)', async () => {
+    const s = setup();
+    s.items.items.set(waffles.id, structuredClone(waffles));
+    const [r] = await s.d.handle(cmd('/same אפיפית = וופלים'), {});
+    expect(r).toMatchObject({ buttons: [[{ text: '= וופלים ללא גלוטן' }], [{ text: '✕ ביטול' }]] });
+    const done = await s.d.handle(tap('s:x1:0'), {});
+    expect(text(done[1])).toBe('✓ מעכשיו "אפיפית" = וופלים ללא גלוטן');
+    expect(s.items.items.get('i-waf')!.aliases).toContain('אפיפית');
+  });
+
+  it('fused prefixes are ignored; cancel and double tap do nothing', async () => {
+    const s = setup();
+    s.items.items.set(waffles.id, structuredClone(waffles));
+    const [r] = await s.d.handle(cmd('/same אפיפית = הוופל'), {});
+    expect(r).toMatchObject({ buttons: [[{ text: '= וופלים ללא גלוטן' }], [{ text: '✕ ביטול' }]] });
+    expect(text((await s.d.handle(tap('s:x1:x'), {}))[1])).toBe('האיחוד בוטל');
+    expect((await s.d.handle(tap('s:x1:0'), {}))[0]).toMatchObject({ text: 'כבר טופל' });
+    expect(s.items.items.get('i-waf')!.aliases).not.toContain('אפיפית');
   });
 });

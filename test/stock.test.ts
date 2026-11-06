@@ -146,6 +146,19 @@ describe('stock questions (R27, ground truth only)', () => {
     expect(text(r)).toBe('חלב 3%: נקנה ב-3/11, לא דווח שנגמר');
   });
 
+  it('shows how many were bought that day (a receipt fact, not a count of what is left — N5)', async () => {
+    const s = setup();
+    const base = { source: 'receipt' as const, createdAt: 'x' };
+    s.purchases.rows.push(
+      { ...base, itemId: 'soda', quantity: 6, unit: 'unit', purchasedOn: '2026-10-29', receiptId: 'r1', lineIndex: 0 },
+      { ...base, itemId: 'soda', quantity: 2, unit: 'unit', purchasedOn: '2026-10-20', receiptId: 'r0', lineIndex: 0 },
+      { ...base, itemId: 'bananas', quantity: 1.2, unit: 'kg', purchasedOn: '2026-11-02', receiptId: 'r2', lineIndex: 0 },
+      { ...base, itemId: 'bananas', quantity: 0.45, unit: 'kg', purchasedOn: '2026-11-02', receiptId: 'r2', lineIndex: 1 },
+    );
+    expect(text((await s.d.handle(msg('יש סודה?'), {}))[0])).toBe('סודה: נקנו 6 ב-29/10, לא דווח שנגמר');
+    expect(text((await s.d.handle(msg('יש בננות?'), {}))[0])).toBe('בננות: נקנו 1.65 ק"ג ב-2/11, לא דווח שנגמר');
+  });
+
   it('reported out with no purchase since, but off the list → reported date', async () => {
     const s = setup();
     await s.d.handle(msg('נגמר חלב', new Date('2026-11-01T08:00:00Z')), {});

@@ -6,7 +6,9 @@ import type { ShoppingList } from '../shopping/shopping-list.js';
 /** User-facing copy (R25: one line). */
 const COPY = {
   onList: (name: string, day: string) => `${name}: נגמר (${day}) — ברשימה`,
-  boughtNotOut: (name: string, day: string) => `${name}: נקנה ב-${day}, לא דווח שנגמר`,
+  boughtNotOut: (name: string, day: string, qty: string) =>
+    `${name}: ${qty ? `נקנו ${qty}` : 'נקנה'} ב-${day}, לא דווח שנגמר`,
+  kg: 'ק"ג',
   reportedOut: (name: string, day: string) => `${name}: דווח שנגמר ב-${day}`,
   unknown: (name: string) => `${name}: אין לי מידע עדיין`,
 } as const;
@@ -54,12 +56,13 @@ export class StockService {
         lines.push(COPY.onList(item.name, shortDay(localDay(new Date(entry.createdAt)))));
         continue;
       }
-      const lastBought = (await this.purchases.listForItem(item.id))
-        .map((p) => p.purchasedOn)
-        .sort()
-        .at(-1);
+      const history = await this.purchases.listForItem(item.id);
+      const lastBought = history.map((p) => p.purchasedOn).sort().at(-1);
       const lastOut = item.lastOutAt ? localDay(new Date(item.lastOutAt)) : undefined;
-      if (lastBought && (!lastOut || lastBought >= lastOut)) lines.push(COPY.boughtNotOut(item.name, shortDay(lastBought)));
+      if (lastBought && (!lastOut || lastBought >= lastOut)) {
+        const qty = boughtQuantity(history.filter((p) => p.purchasedOn === lastBought));
+        lines.push(COPY.boughtNotOut(item.name, shortDay(lastBought), qty));
+      }
       else if (lastOut) lines.push(COPY.reportedOut(item.name, shortDay(lastOut)));
       else lines.push(COPY.unknown(item.name));
     }
@@ -77,6 +80,17 @@ export class StockService {
     }
     return moved;
   }
+}
+
+/**
+ * How much was bought that day — a fact from receipts, never "how many are left" (N5).
+ * "" for a single unit (reads as "נקנה"), "6" for units, "1.6 ק"ג" for weighed items.
+ */
+function boughtQuantity(sameDay: Purchase[]): string {
+  const kg = sameDay.filter((p) => p.unit === 'kg').reduce((n, p) => n + p.quantity, 0);
+  const units = sameDay.filter((p) => p.unit !== 'kg').reduce((n, p) => n + p.quantity, 0);
+  if (units === 0 && kg > 0) return `${Number(kg.toFixed(2))} ${COPY.kg}`;
+  return units > 1 ? String(Number(units.toFixed(2))) : '';
 }
 
 export function localDay(at: Date): string {

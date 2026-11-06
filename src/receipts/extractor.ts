@@ -48,11 +48,19 @@ Return one entry per purchased product line:
 - unit: "kg" for items sold by weight (quantity is the weight, e.g. 1.20 ק"ג), otherwise "unit".
 If the same product appears on several lines, return each line as printed.
 
+Layouts to expect:
+- The item code can be on its own line above the name, or before the name on the same line.
+- Quantity and unit price are often on the line UNDER the product: "2.90 x 8 ליחידה" or
+  "8 x 2.90" = 8 units; "0.815 ק\"ג x 6.90 לק\"ג" = 0.815 kg. Use the count/weight, not the price.
+- Photos of paper receipts may be folded, skewed, curled or partly covered by fingers. Read every
+  product line you can see; skip a line only if you truly cannot read it.
+
 Do NOT return:
-- promotion/discount lines — "מבצע", "הנחה", "קופון", negative amounts, and deal descriptions
+- promotion/discount lines — "מבצע", "הנחה", "קופון", "קטיף", "סאבדיי", negative amounts, and deal descriptions
   printed as a text line without their own item price (e.g. "פסטה רומו 2 ב 20", "שימורי X 2ב16",
   "מ. השיטה 2 ב 11-"), which belong to the product next to them;
-- deposits (פיקדון), delivery/packing fees, bags, subtotals, totals, VAT (מע"מ),
+- deposits (פיקדון), delivery/packing fees, bags ("שקית קופה"), subtotals, totals, VAT (מע"מ),
+- loyalty-club sections (member name, points, savings, coupons),
 - payment lines (cash, credit-card company names such as כאל / ויזה / ישראכרט / מקס, change).
 
 isReceipt = false if the file is not a shopping receipt (then lines = []).

@@ -399,6 +399,9 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
       expect(system).toContain('פסטה רומו 2 ב 20');
       expect(system).toContain('כאל');
       expect(system).toContain('Super-Pharm');
+      expect(system).toContain('line UNDER the product'); // "2.90 x 8" quantity lines on paper receipts
+      expect(system).toContain('partly covered by fingers');
+      expect(system).toContain('שקית קופה');
     });
   });
 });

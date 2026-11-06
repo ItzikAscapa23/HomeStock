@@ -270,7 +270,7 @@ changes its id to `-100…`. Run `/chatid` in the group and update
 **The bot replies "pong"** — the deployed code is older than your checkout. Run
 `npm run deploy`.
 
-**`Token has expired`** / `The SSO session … has expired` — run
+**`Unable to resolve AWS account to use`** (from `npm run deploy`) or **`Token has expired`** / `The SSO session … has expired` — run
 `aws sso login --profile homestock`.
 
 ---

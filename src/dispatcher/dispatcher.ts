@@ -12,7 +12,7 @@ import type { ChatGate } from './chat-gate.js';
 
 /** All user-facing copy for this module (CLAUDE.md: one place per module). Replies are one line (R25). */
 const COPY = {
-  help: 'כתבו מה נגמר ("נגמר חלב"), מה קניתם ("קניתי חלב") או שאלו ("יש לנו ביצים?") · /list רשימת קניות · /same א = ב לאחד מוצרים',
+  help: 'כתבו מה נגמר ("נגמר חלב"), מה קניתם ("קניתי חלב") או שאלו ("יש לנו ביצים?") · /list רשימת קניות · /same א = ב לאחד מוצרים · /rename שם = שם נכון לתיקון שם',
   chatId: (chatId: number, userId: number | undefined) => `chat id: ${chatId}${userId ? ` · user id: ${userId}` : ''}`,
   added: (names: string) => `✓ ${names} — ברשימה`,
   alreadyListed: (names: string) => `${names} כבר ברשימה`,
@@ -33,6 +33,11 @@ const COPY = {
   samePickAlias: (name: string) => `= ${name}`,
   sameAlready: (s: string, t: string) => `"${s}" כבר = ${t}`,
   sameAliased: (s: string, t: string) => `✓ מעכשיו "${s}" = ${t}`,
+  renameUsage: 'כתבו כך: /rename ארונה = אנונה (השם הקיים = השם הנכון)',
+  renameUnknown: (t: string) => `לא מכיר את "${t}". השמות המדויקים: /list`,
+  renameWhich: (t: string, names: string) => `"${t}" מתאים לכמה: ${names} — כתבו את השם המלא`,
+  renameTaken: (n: string) => `"${n}" כבר קיים — לאיחוד: /same`,
+  renamed: (from: string, to: string) => `✓ "${from}" נקרא מעכשיו "${to}"`,
   mergeAsk: (s: string, t: string) => `🔀 לאחד את "${s}" לתוך "${t}"? היסטוריית הקניות עוברת, "${s}" יימחק`,
   mergeYes: '✓ אחד',
   mergeNo: '✕ ביטול',
@@ -123,6 +128,8 @@ export class Dispatcher {
         return [{ intent: 'list' }, [{ type: 'send', text: await this.listText() }]];
       case 'same':
         return this.onSame(event);
+      case 'rename':
+        return this.onRename(event);
       default:
         return [{ intent: 'unknown-command', command: event.command }, []];
     }
@@ -234,6 +241,31 @@ export class Dispatcher {
     }
     const outcome = await this.d.shopping.reportOut([item], cb.fromUserId, cb.receivedAt);
     return [{ intent: 'ask-answered', askId, itemId: item.id }, [ack, edit(confirmation(outcome))]];
+  }
+
+  // ---------- /rename A = B: fix an item's name (a misread receipt line, a typo) ----------
+
+  private async onRename(msg: InboundMessage): Promise<[Record<string, unknown>, Reply[]]> {
+    const parts = msg.text.replace(/^\/\S+\s*/, '').split('=').map((p) => p.trim());
+    const [from, to] = parts;
+    if (parts.length !== 2 || !from || !to) return [{ intent: 'rename-usage' }, [{ type: 'send', text: COPY.renameUsage }]];
+
+    // The old name: exact, or the only item a partial name finds ("ארונה" → "ארונה ישראל").
+    let item = await this.d.registry.findExact(from);
+    if (!item) {
+      const hits = await this.d.registry.search(from);
+      if (hits.length === 0) return [{ intent: 'rename-unknown' }, [{ type: 'send', text: COPY.renameUnknown(from) }]];
+      if (hits.length > 1) {
+        return [{ intent: 'rename-ambiguous' }, [{ type: 'send', text: COPY.renameWhich(from, hits.map((h) => h.name).join(', ')) }]];
+      }
+      item = hits[0]!;
+    }
+    // The new name must not already be another product — that's a merge, not a rename.
+    const clash = await this.d.registry.findExact(to);
+    if (clash && clash.id !== item.id) return [{ intent: 'rename-taken', itemId: clash.id }, [{ type: 'send', text: COPY.renameTaken(to) }]];
+
+    const renamed = await this.d.registry.rename(item.id, to);
+    return [{ intent: 'renamed', itemId: item.id, from: item.name, to: renamed.name }, [{ type: 'send', text: COPY.renamed(item.name, renamed.name) }]];
   }
 
   // ---------- /same A = B: "these are the same product for us" (R21) ----------

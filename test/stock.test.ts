@@ -286,3 +286,43 @@ describe('/same — "did you mean" when the target is not exact', () => {
     expect(s.items.items.get('i-waf')!.aliases).not.toContain('אפיפית');
   });
 });
+
+describe('/rename — fix a misread or mistyped name', () => {
+  const misread = () => {
+    const s = setup();
+    s.items.items.set('i-ann', {
+      id: 'i-ann', name: 'ארונה', category: 'produce', aliases: ['ארונה', 'ארונה ישראל'], codes: ['victory2130'],
+      flags: { staple: false, nonCyclic: false }, createdAt: AT.toISOString(),
+    });
+    return s;
+  };
+
+  it('renames the item; the new name resolves, the wrong one no longer does; codes and history stay', async () => {
+    const s = misread();
+    await s.d.handle(msg('קניתי ארונה'), {});
+    const [r] = await s.d.handle(cmd('/rename ארונה = אנונה'), {});
+    expect(text(r)).toBe('✓ "ארונה" נקרא מעכשיו "אנונה"');
+    const item = s.items.items.get('i-ann')!;
+    expect(item).toMatchObject({ name: 'אנונה', codes: ['victory2130'] });
+    expect(item.aliases).toEqual(['ארונה ישראל', 'אנונה']); // receipt wording kept, wrong name gone
+    expect(s.purchases.rows.filter((p) => p.itemId === 'i-ann')).toHaveLength(1);
+
+    await s.make().handle(msg('נגמרה האנונה'), {});
+    expect([...s.list.entries.keys()]).toEqual(['i-ann']);
+    expect(s.llm.requests).toHaveLength(0);
+  });
+
+  it('a partial old name works when it finds exactly one item', async () => {
+    const s = misread();
+    s.items.items.get('i-ann')!.name = 'ארונה ישראלית';
+    expect(text((await s.d.handle(cmd('/rename ארונה ישר = אנונה'), {}))[0])).toBe('✓ "ארונה ישראלית" נקרא מעכשיו "אנונה"');
+  });
+
+  it('refuses a new name that is another product, and explains usage', async () => {
+    const s = misread();
+    expect(text((await s.d.handle(cmd('/rename ארונה = חלב'), {}))[0])).toBe('"חלב" כבר קיים — לאיחוד: /same');
+    expect(s.items.items.get('i-ann')!.name).toBe('ארונה');
+    expect(text((await s.d.handle(cmd('/rename ארונה'), {}))[0])).toContain('/rename');
+    expect(text((await s.d.handle(cmd('/rename קיווי זהב = קיווי'), {}))[0])).toContain('לא מכיר');
+  });
+});

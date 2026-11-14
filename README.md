@@ -215,6 +215,7 @@ In the group:
 - `קניתי חלב` → recorded as bought, and off the list
 - `יש לנו ביצים?` → what the bot knows (on the list / last bought / no data)
 - `/same קוטג׳ 9% = קוטג׳` → from now on both mean the same product (the name after `=` stays)
+- `/rename ארונה = אנונה` → fixes a product's name (e.g. one a receipt photo misread)
 - `/list` → the shopping list by supermarket section
 - a receipt PDF in the private chat → a summary of what was bought
 

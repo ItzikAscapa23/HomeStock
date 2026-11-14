@@ -117,6 +117,27 @@ export class ItemRegistry {
     return { source, target: merged };
   }
 
+  /**
+   * Fixes an item's name (a misread receipt line, a typo). The new name becomes an alias; the
+   * old name stops being one — it was wrong. Other learned aliases, codes and history stay.
+   */
+  async rename(itemId: string, newName: string): Promise<Item> {
+    const cache = await this.load();
+    const item = cache.items.get(itemId);
+    if (!item) throw new Error('rename: item not found');
+    const name = newName.trim();
+    const oldAlias = normaliseAlias(item.name);
+    const newAlias = normaliseAlias(name);
+    const renamed: Item = {
+      ...item,
+      name,
+      aliases: [...new Set([...item.aliases.filter((a) => a !== oldAlias), newAlias].filter(Boolean))],
+    };
+    await this.store.put(renamed);
+    this.cache = undefined; // aliases changed — rebuild on next read
+    return renamed;
+  }
+
   async create(input: {
     name: string;
     category: CategoryId;

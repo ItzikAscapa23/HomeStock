@@ -92,7 +92,9 @@ Commits: `phase(N): <what>` (CLAUDE.md wins over the handover skill's default fo
 - [x] Live: `/same` merges done by the user (גרעיני חמניה קלויים → שחורים, אפיפית שוקולד → וופלים ללא גלוטן) — worked, but the target had to be typed exactly (two misses)
 - [x] `/same` "did you mean": a non-exact target offers up to 3 items as buttons; the tap is the confirmation (label shows 🔀 merge or = alias)
 - [ ] Deploy + live check: "קניתי חלב", "יש לנו ביצים?", a paper-receipt photo, `/same X = <partial name>`
-- [ ] Live check: Victory paper-receipt photo (13/11) — promo "בנ…" lines skipped, chicken/drumstick weights summed, date 13/11
+- [x] Victory receipt photo read live (23 products, 12 matched, 9 new, 2 asked) — one name misread ("ארונה" for אנונה) → `/rename` added
+- [ ] Live check: `/rename ארונה = אנונה`
+- [ ] (was) Live check: Victory paper-receipt photo (13/11) — promo "בנ…" lines skipped, chicken/drumstick weights summed, date 13/11
 
 *Phase 2 — Stock in and interval learning. **Not started — blocked by the phase 1 review gate.** Items already delivered by phase 1.5 are marked; the rest is the remaining scope.*
 
@@ -114,7 +116,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 | Command / check | Result |
 |---|---|
 | `npm run build` | passed (exit 0) |
-| `npm test` | passed — 9 files, 147 tests (phase 1.6: intent, stock-in, stock questions, /same merge, Victory layout, chain-scoped codes) (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
+| `npm test` | passed — 9 files, 150 tests (phase 1.6: intent, stock-in, stock questions, /same merge, /rename, Victory layout, chain-scoped codes) (receipt flow on synthetic Shufersal / Super-Pharm / Osher Ad layouts; Q3 variant fixtures) |
 | `npx cdk synth` | passed. No VpcConfig. Worker 180 s / 1024 MB, env adds `BUCKET_NAME`; worker bundle 45.8 kb, ingress 3.7 kb |
 | Live receipt #1 (Shufersal PDF) | first try **failed** (`Anthropic 400: tool_choice … not supported`, Sonnet 5.5) → fixed (`output_config.format`) → **passed**: 31 new items added in one tap, 4 ambiguous lines answered |
 | Live receipt #2 (Super-Pharm, file saved without `.pdf`) | first try **silent** (declared `application/octet-stream`) → fixed (bytes sniffed) → **passed**: 4 products (3 body-cream lines merged), 2 matched, 2 new. User feedback: summary hid matched names and all quantities → summary now names every product with ×qty / kg |
@@ -168,6 +170,7 @@ Phase 1.5, 2026-10-31 (cloud workspace). Phase 1's live results remain valid (ph
 - **The receipt summary names every product with its quantity** (×N for several units, kg for weighed) — a count alone ("✓ 2 recorded") couldn't be checked and wasn't trusted. Long receipts are clipped at Telegram's message limit.
 - **Receipt file type is sniffed from content** (`%PDF-`, JPEG/PNG/WebP magic bytes), never trusted from Telegram's MIME label or the file name. Any document in the private chat is a receipt candidate; anything unreadable or > 10 MB gets one line ("PDF or photo, up to 10MB") instead of silence.
 - **Item codes / barcodes are stored on items** (`codes`) and are the first resolution step for receipt lines — exact, language-free, local (R22).
+- **`/rename A = B` fixes an item's name** (user request after a misread receipt photo, 2026-11-14). A = exact name/alias or the single item a partial name finds; B must not be another item (→ `/same`). The new name becomes an alias; the old name is removed as an alias (it was wrong); other aliases, codes, purchases and list rows are untouched (keyed by item id). Renaming a *pending* receipt proposal before "add all" isn't supported — tap add all, then `/rename`.
 - **Only barcodes are global; other item codes are per chain** (2026-11-14). GTIN-8/12/13/14 stay as digits; shorter codes and produce PLUs (Victory 2009 = bananas) are stored as `<chain>:<code>` (extractor returns a `chain` enum); with chain `other` a short code is dropped. A cross-chain code collision would record the wrong product with no question. Consequence: short codes learned before this (Shufersal / Osher Ad) no longer match — the next receipt from those chains goes through LLM matching once and re-learns them scoped. No fallback to bare codes, on purpose.
 - **Receipt lines carry the printed `total`; a line with total ≤ 0 is dropped in code** — promo/discount/voucher lines that name a product (Victory "בנ…", "ספח") can't become purchases even if the model returns them.
 - **Q4 — LLM layer (user decision, 2026-10-31):** one domain interface in `src/llm/` (`complete<T>({ task, system, user, schema })` → typed JSON); callers name a *task*, never a model. **Two provider adapters from the start: Anthropic and OpenAI.** A routing config maps task → `{ provider, model }`, passed to the worker as an env var from CDK context — switching provider/model is a config change + deploy. Keys in SSM: `/homestock/llm/anthropic-api-key`, `/homestock/llm/openai-api-key`. No LangChain / Vercel AI SDK: bundle size, and they hide structured output, prompt caching and vision. A Hebrew fixture set (real messages → expected item) gates any routing change.

@@ -198,7 +198,7 @@ the seed is safe: it updates items and keeps the aliases the bot has learned.
 
 ### 5.4 Receipts (optional)
 Send a supermarket receipt — a digital PDF (e.g. a Shufersal Online delivery note) or a
-photo of a paper one — **in your private chat with the bot** (files in the group are
+photo of a paper one (tried so far: Shufersal, Osher Ad, Super-Pharm, Victory) — **in your private chat with the bot** (files in the group are
 ignored). The bot reads it, records what you bought, takes those items off the shopping
 list, and asks once about products it hasn't seen: one "✓ add all" for new products, a
 single question for any it isn't sure about. Next time those products are recognised by

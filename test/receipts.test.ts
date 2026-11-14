@@ -3,7 +3,7 @@ import { Dispatcher } from '../src/dispatcher/dispatcher.js';
 import { ReceiptFlow } from '../src/dispatcher/receipt-flow.js';
 import type { Attachment, InboundCallback, InboundMessage, Reply } from '../src/domain/message.js';
 import { StockService } from '../src/inventory/stock.js';
-import { ReceiptExtractor } from '../src/receipts/extractor.js';
+import { ReceiptExtractor, scopeCode } from '../src/receipts/extractor.js';
 import { ReceiptLineResolver } from '../src/receipts/line-resolver.js';
 import { ReceiptService } from '../src/receipts/receipt-service.js';
 import { ItemRegistry } from '../src/registry/item-registry.js';
@@ -30,6 +30,7 @@ import {
 const EXTRACTION = {
   isReceipt: true,
   store: 'שופרסל ONLINE',
+  chain: 'shufersal',
   purchasedOn: '2026-10-31',
   lines: [
     { code: '4131074', description: "חלב בקרטון 3% שומן 1 ל'", quantity: 2, unit: 'unit' },
@@ -94,7 +95,7 @@ function setup() {
     newId,
     logError: () => {},
   });
-  return { d, items, list, pending, purchases, receiptStore, storage, files, llm };
+  return { d, items, list, pending, purchases, receiptStore, storage, files, llm, registry };
 }
 
 let updateId = 1000;
@@ -176,8 +177,8 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
 
   it('learns item codes from confident matches so the next receipt resolves locally (R22)', async () => {
     await sendReceipt(s);
-    expect(s.items.items.get('milk')!.codes).toEqual(['4131074']);
-    expect(s.items.items.get('eggs')!.codes).toEqual(['1201589']);
+    expect(s.items.items.get('milk')!.codes).toEqual(['shufersal4131074']);
+    expect(s.items.items.get('eggs')!.codes).toEqual(['shufersal1201589']);
   });
 
   it('one summary for new items with "add all"; one question per ambiguous line', async () => {
@@ -213,9 +214,9 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
 
     const created = [...s.items.items.values()].filter((i) => i.id.startsWith('i-'));
     expect(created.map((i) => [i.name, i.category, i.codes])).toEqual([
-      ['מיונז', 'pantry', ['111186']],
-      ['שמנת להקצפה 38%', 'dairy', ['43814']],
-      ['עגבניות שרי', 'produce', ['9137576']],
+      ['מיונז', 'pantry', ['shufersal111186']],
+      ['שמנת להקצפה 38%', 'dairy', ['shufersal43814']],
+      ['עגבניות שרי', 'produce', ['shufersal9137576']],
     ]);
     expect(s.purchases.rows).toHaveLength(5);
     expect(s.purchases.rows.at(-1)).toMatchObject({ quantity: 0.8, unit: 'kg' });
@@ -233,7 +234,7 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     await sendReceipt(s);
     const yes = await s.d.handle(tap('l:p2:y'), {});
     expect(yes[1]).toEqual({ type: 'edit', messageId: 9, text: '✓ "קוטג\' 5% 250 גרם בעלז" → קוטג׳' });
-    expect(s.items.items.get('cottage')!.codes).toEqual(['4127329']);
+    expect(s.items.items.get('cottage')!.codes).toEqual(['shufersal4127329']);
     expect(s.purchases.rows.at(-1)).toMatchObject({ itemId: 'cottage' });
 
     const s2 = setup();
@@ -242,7 +243,7 @@ describe('receipt ingestion (R1, R2) — private chat', () => {
     await sendReceipt(s2);
     await s2.d.handle(tap('l:p2:n'), {});
     const variant = [...s2.items.items.values()].find((i) => i.name === "קוטג' 5%");
-    expect(variant?.codes).toEqual(['4127329']);
+    expect(variant?.codes).toEqual(['shufersal4127329']);
     expect(s2.items.items.get('cottage')!.codes).toBeUndefined();
   });
 
@@ -326,7 +327,7 @@ describe('receipt edge cases', () => {
       store: null,
       purchasedOn: null,
       lines: [
-        { index: 0, code: '123', description: 'לחם', quantity: 1, unit: 'unit' },
+        { index: 0, code: null, description: 'לחם', quantity: 1, unit: 'unit' }, // short code, unknown chain
         { index: 1, code: null, description: 'עגבניות', quantity: 1.25, unit: 'kg' },
       ],
     });
@@ -371,6 +372,7 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
       {
         isReceipt: true,
         store: 'אושר עד',
+        chain: 'osher-ad',
         purchasedOn: '2026-04-09',
         lines: [
           { code: '8008343880138', description: 'פסטה לינגוויני ללא גלוטן', quantity: 2, unit: 'unit' },
@@ -387,8 +389,64 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
       [0, '8008343880138', 4, 'unit'],
       [1, null, 1.55, 'kg'],
       [2, null, 1, 'unit'],
-      [3, '9000313', 2, 'kg'],
+      [3, 'osher-ad:9000313', 2, 'kg'],
     ]);
+  });
+
+  it('Victory paper receipt: promo, voucher and bag lines dropped; repeats and weighed cuts summed', async () => {
+    // Structure of a real Victory receipt (13/11/2026), as the model is asked to return it.
+    const llm = new FakeLlm([
+      {
+        isReceipt: true,
+        store: 'ויקטורי',
+        chain: 'victory',
+        purchasedOn: '2026-11-13',
+        lines: [
+          { code: '7622202268298', description: 'מילקה שוקולד חלב', quantity: 1, unit: 'unit', total: 9.9 },
+          { code: '7622202268298', description: 'מילקה שוקולד חלב', quantity: 1, unit: 'unit', total: 9.9 },
+          { code: '7622202268298', description: 'מילקה שוקולד חלב', quantity: 1, unit: 'unit', total: 9.9 },
+          // If the model lets a promo line through, the negative total still drops it.
+          { code: null, description: 'בנ22233טבלאות שוקל', quantity: 1, unit: 'unit', total: -7.7 },
+          { code: '7296049039498', description: 'קוברה מארז 10', quantity: 2, unit: 'unit', total: 20 },
+          { code: '2047', description: 'קלמנטינה ישראל', quantity: 1.085, unit: 'kg', total: 8.57 },
+          { code: '6011', description: 'קידוד אריזה', quantity: 1, unit: 'unit', total: -0.51 },
+          { code: '2206057', description: 'חזה עוף טרי שלם', quantity: 1.065, unit: 'kg', total: 44.62 },
+          { code: '2206057', description: 'חזה עוף טרי שלם', quantity: 0.919, unit: 'kg', total: 38.51 },
+          { code: '2206057', description: 'חזה עוף טרי שלם', quantity: 1.185, unit: 'kg', total: 49.65 },
+          { code: '72918388', description: 'טוריסט חטיפי עלית', quantity: 1, unit: 'unit', total: 4.8 },
+          { code: '1075', description: 'ספח תניה 3 שעות', quantity: 1, unit: 'unit', total: 0 },
+        ],
+      },
+    ]);
+    const r = await new ReceiptExtractor(llm).extract({ mediaType: 'image/jpeg', base64: '' });
+    expect(r.chain).toBe('victory');
+    expect(r.lines.map((l) => [l.code, l.description, l.quantity, l.unit])).toEqual([
+      ['7622202268298', 'מילקה שוקולד חלב', 3, 'unit'],
+      ['7296049039498', 'קוברה מארז 10', 2, 'unit'],
+      ['victory:2047', 'קלמנטינה ישראל', 1.085, 'kg'],
+      ['victory:2206057', 'חזה עוף טרי שלם', 3.169, 'kg'],
+      ['72918388', 'טוריסט חטיפי עלית', 1, 'unit'],
+    ]);
+    const system = llm.requests[0]!.system;
+    expect(system).toContain('ויקטורי');
+    expect(system).toContain('13/11/2026 = 2026-11-13');
+  });
+
+  it('a chain\'s own item code never matches the same digits from another chain', async () => {
+    expect(scopeCode('7290002007852', 'victory')).toBe('7290002007852'); // barcode: global
+    expect(scopeCode('72918388', 'other')).toBe('72918388'); // EAN-8: global
+    expect(scopeCode('2009', 'victory')).toBe('victory:2009');
+    expect(scopeCode('2009', 'osher-ad')).toBe('osher-ad:2009');
+    expect(scopeCode('2009', 'other')).toBeNull(); // unknown chain: no code beats a wrong one
+
+    const s = setup();
+    await s.registry.learnCode('bananas', scopeCode('2009', 'victory'));
+    const resolver = new ReceiptLineResolver(s.registry, s.llm);
+    s.llm.queue({ matches: [{ lineIndex: 0, itemId: null, confidence: 'low', newItem: { name: 'שזיפים', category: 'produce' } }] });
+    const { results } = await resolver.resolve([
+      { index: 0, code: scopeCode('2009', 'osher-ad'), description: 'שזיפים', quantity: 1, unit: 'kg' },
+    ]);
+    expect(results[0]!.kind).toBe('new');
   });
 
   it('the extraction prompt covers wrapped descriptions, price-less promo lines and card payments', () => {

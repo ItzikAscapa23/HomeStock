@@ -449,6 +449,22 @@ describe('receipt layouts seen in the wild (synthetic, structure only)', () => {
     expect(results[0]!.kind).toBe('new');
   });
 
+  it('a line whose code belongs to an ignored product is not recorded, and is named in the summary', async () => {
+    const s = setup();
+    s.items.items.set('i-hang', {
+      id: 'i-hang', name: 'קובה', category: 'frozen', aliases: [], codes: ['7296049039498'], ignored: true,
+      flags: { staple: false, nonCyclic: false }, createdAt: '2026-11-13T10:00:00Z',
+    });
+    s.llm.queue({
+      isReceipt: true, store: 'ויקטורי', chain: 'victory', purchasedOn: '2026-11-14',
+      lines: [{ code: '7296049039498', description: 'קוברה מארז 10 קולב', quantity: 2, unit: 'unit', total: 20 }],
+    });
+    const { replies } = await sendReceipt(s);
+    expect(replies[0]!.type === 'send' && replies[0]!.text).toContain('🚫 לא במעקב: קוברה מארז 10 קולב');
+    expect(s.purchases.rows).toHaveLength(0);
+    expect(s.llm.requests).toHaveLength(1); // matched by code — no matching call
+  });
+
   it('the extraction prompt covers wrapped descriptions, price-less promo lines and card payments', () => {
     const llm = new FakeLlm([{ isReceipt: false, store: null, purchasedOn: null, lines: [] }]);
     return new ReceiptExtractor(llm).extract({ mediaType: 'application/pdf', base64: '' }).then(() => {

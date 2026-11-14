@@ -15,6 +15,7 @@ const COPY = {
   newHeader: (n: number) => `➕ ${n} מוצרים חדשים:`,
   newLine: (name: string, category: string) => `• ${name} (${isCategoryId(category) ? CATEGORIES[category] : category})`,
   kg: 'ק"ג',
+  ignored: (names: string) => `🚫 לא במעקב: ${names}`,
   ambiguous: (n: number) => `❓ ${n} לא בטוח — שאלה על כל אחד בהמשך`,
   addAll: (n: number) => `✓ הוסף את כל ה-${n}`,
   skipAll: '✕ דלג',
@@ -165,6 +166,7 @@ function summaryText(r: Extract<IngestResult, { status: 'ok' }>): string {
     parts.push(COPY.newHeader(r.newLines.length));
     for (const n of r.newLines) parts.push(COPY.newLine(n.proposal.name + qty(n.line), n.proposal.category));
   }
+  if (r.ignored.length > 0) parts.push(COPY.ignored(r.ignored.map((l) => l.description).join(', ')));
   if (r.ambiguous.length > 0) parts.push(COPY.ambiguous(r.ambiguous.length));
   return clip(parts.join('\n'));
 }

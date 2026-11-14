@@ -34,6 +34,8 @@ export type IngestResult =
       clearedFromList: Item[];
       /** Not in the registry — confirmed in bulk. */
       newLines: { line: ReceiptLine; proposal: Proposal }[];
+      /** Lines of products the household doesn't track — not recorded. */
+      ignored: ReceiptLine[];
       /** Probably an existing item — asked one by one. */
       ambiguous: { line: ReceiptLine; candidate: Item; proposal: Proposal }[];
       llm: { extract: { provider: string; model: string }; match?: { provider: string; model: string } };
@@ -87,11 +89,16 @@ export class ReceiptService {
       const matched: { line: ReceiptLine; item: Item }[] = [];
       const newLines: { line: ReceiptLine; proposal: Proposal }[] = [];
       const ambiguous: { line: ReceiptLine; candidate: Item; proposal: Proposal }[] = [];
+      const ignored: ReceiptLine[] = [];
 
       for (const r of results) {
         if (r.kind === 'matched') {
           const item = await this.d.registry.get(r.itemId);
           if (!item) continue;
+          if (item.ignored) {
+            ignored.push(r.line);
+            continue;
+          }
           if (r.via === 'llm') await this.d.registry.learnCode(item.id, r.line.code); // next time: local (R22)
           matched.push({ line: r.line, item });
         } else if (r.kind === 'ambiguous') {
@@ -110,7 +117,7 @@ export class ReceiptService {
         store: extracted.store,
         purchasedOn,
         lines: extracted.lines,
-        summary: { matched: matched.length, new: newLines.length, ambiguous: ambiguous.length },
+        summary: { matched: matched.length, new: newLines.length, ambiguous: ambiguous.length, ignored: ignored.length },
       });
 
       return {
@@ -122,6 +129,7 @@ export class ReceiptService {
         matched,
         clearedFromList: cleared,
         newLines,
+        ignored,
         ambiguous,
         llm: { extract: extracted.llm, ...(matchLlm && { match: matchLlm }) },
       };

@@ -14,6 +14,11 @@ export interface Item {
   flags: { staple: boolean; nonCyclic: boolean };
   /** Last ground-truth depletion report (R4, R5). Phase 2 uses it to reset the cycle. */
   lastOutAt?: string;
+  /**
+   * Not tracked (user said so — hangers, a gift): kept only so its receipt codes are recognised
+   * and skipped. Has no aliases, and is left out of matching, prompts and suggestions.
+   */
+  ignored?: boolean;
   createdAt: string;
 }
 

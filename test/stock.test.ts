@@ -326,3 +326,52 @@ describe('/rename — fix a misread or mistyped name', () => {
     expect(text((await s.d.handle(cmd('/rename קיווי זהב = קיווי'), {}))[0])).toContain('לא מכיר');
   });
 });
+
+describe('/ignore — a product the household does not track', () => {
+  const hangers = (purchases: { receiptId?: string; source?: 'receipt' | 'manual' }[] = [{ receiptId: 'r1' }]) => {
+    const s = setup();
+    s.items.items.set('i-hang', {
+      id: 'i-hang', name: 'קובה', category: 'frozen', aliases: ['קובה', 'קוברה מארז 10 קולב'], codes: ['7296049039498'],
+      flags: { staple: false, nonCyclic: false }, createdAt: AT.toISOString(),
+    });
+    purchases.forEach((p, n) =>
+      s.purchases.rows.push({
+        itemId: 'i-hang', quantity: 2, unit: 'unit', source: p.source ?? 'receipt', purchasedOn: '2026-11-13',
+        ...(p.receiptId && { receiptId: p.receiptId }), lineIndex: n, createdAt: AT.toISOString(),
+      }),
+    );
+    return s;
+  };
+
+  it('removes the item from tracking: no purchases, no words resolve to it, its code is kept', async () => {
+    const s = hangers();
+    const [r] = await s.d.handle(cmd('/ignore קובה'), {});
+    expect(text(r)).toBe('✓ "קובה" הוסר — לא יירשם יותר מקבלות');
+    expect(s.items.items.get('i-hang')).toMatchObject({ ignored: true, aliases: [], codes: ['7296049039498'] });
+    expect(s.purchases.rows).toHaveLength(0);
+
+    // Real kubbeh later is a new, unknown word — not the hangers.
+    s.llm.queue({ intent: 'out', items: [{ mention: 'קובה', itemId: null, confidence: 'low', candidateItemIds: [], newItem: { name: 'קובה', category: 'frozen' } }] });
+    const [ask] = await s.make().handle(msg('נגמרה הקובה'), {});
+    expect(text(ask)).toBe('לא בטוח מה זה "קובה":');
+    expect(s.llm.requests[0]!.system).not.toContain('i-hang');
+  });
+
+  it('refuses an item the family relies on (other receipts, manual purchases, reports)', async () => {
+    const two = hangers([{ receiptId: 'r1' }, { receiptId: 'r2' }]);
+    expect(text((await two.d.handle(cmd('/ignore קובה'), {}))[0])).toBe('"קובה" כבר בשימוש (דיווחים או קניות קודמות) — לא הסרתי');
+    expect(two.items.items.get('i-hang')!.ignored).toBeUndefined();
+
+    const manual = hangers([{ source: 'manual' }]);
+    expect(text((await manual.d.handle(cmd('/ignore קובה'), {}))[0])).toContain('כבר בשימוש');
+
+    const milk = setup();
+    await milk.d.handle(msg('נגמר חלב'), {});
+    expect(text((await milk.d.handle(cmd('/ignore חלב'), {}))[0])).toContain('כבר בשימוש');
+  });
+
+  it('explains usage', async () => {
+    const s = setup();
+    expect(text((await s.d.handle(cmd('/ignore'), {}))[0])).toContain('/ignore');
+  });
+});

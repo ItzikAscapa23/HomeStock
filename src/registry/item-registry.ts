@@ -21,8 +21,9 @@ export class ItemRegistry {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Tracked items. Ignored ones are left out (they exist only for their codes). */
   async all(): Promise<Item[]> {
-    return [...(await this.load()).items.values()];
+    return [...(await this.load()).items.values()].filter((i) => !i.ignored);
   }
 
   async get(itemId: string): Promise<Item | undefined> {
@@ -138,6 +139,17 @@ export class ItemRegistry {
     return renamed;
   }
 
+  /** Stops tracking an item: it keeps its codes (so receipt lines with them are skipped) and nothing else. */
+  async ignore(itemId: string): Promise<Item> {
+    const item = (await this.load()).items.get(itemId);
+    if (!item) throw new Error('ignore: item not found');
+    const ignored: Item = { ...item, aliases: [], ignored: true };
+    delete ignored.lastOutAt;
+    await this.store.put(ignored);
+    this.cache = undefined;
+    return ignored;
+  }
+
   async create(input: {
     name: string;
     category: CategoryId;
@@ -172,6 +184,7 @@ export class ItemRegistry {
     const codes = new Map<string, string>();
     for (const item of list) {
       for (const c of item.codes ?? []) if (!codes.has(c)) codes.set(c, item.id);
+      if (item.ignored) continue; // no words resolve to an ignored item
       for (const a of [item.name, ...item.aliases].map(normaliseAlias)) {
         // First writer wins on collisions; collisions are a registry bug the seed script reports.
         if (a && !aliases.has(a)) aliases.set(a, item.id);

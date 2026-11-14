@@ -69,6 +69,21 @@ export class StockService {
     return lines.join(' · ');
   }
 
+  /**
+   * "Don't track this" (hangers off a supermarket receipt). Only for an item nobody relies on:
+   * one with a depletion report, a purchase not from a receipt, or purchases on more than one
+   * receipt is in use — ignoring it would hide a real product.
+   */
+  async ignore(item: Item): Promise<{ status: 'ignored'; removedPurchases: number } | { status: 'in-use' }> {
+    const history = await this.purchases.listForItem(item.id);
+    const receipts = new Set(history.map((p) => p.receiptId ?? `${p.source}:${p.createdAt}`));
+    if (item.lastOutAt || receipts.size > 1 || history.some((p) => p.source !== 'receipt')) return { status: 'in-use' };
+    await this.registry.ignore(item.id);
+    const removedPurchases = await this.purchases.deleteForItem(item.id);
+    await this.list.remove(item.id);
+    return { status: 'ignored', removedPurchases };
+  }
+
   /** Moves purchase history and the open list row when two items are merged. */
   async mergeInto(sourceId: string, targetId: string): Promise<number> {
     if (sourceId === targetId) return 0;

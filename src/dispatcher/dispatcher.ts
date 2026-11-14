@@ -12,7 +12,7 @@ import type { ChatGate } from './chat-gate.js';
 
 /** All user-facing copy for this module (CLAUDE.md: one place per module). Replies are one line (R25). */
 const COPY = {
-  help: 'כתבו מה נגמר ("נגמר חלב"), מה קניתם ("קניתי חלב") או שאלו ("יש לנו ביצים?") · /list רשימת קניות · /same א = ב לאחד מוצרים · /rename שם = שם נכון לתיקון שם',
+  help: 'כתבו מה נגמר ("נגמר חלב"), מה קניתם ("קניתי חלב") או שאלו ("יש לנו ביצים?") · /list רשימת קניות · /same א = ב לאחד מוצרים · /rename שם = שם נכון לתיקון שם · /ignore מוצר להפסיק לעקוב',
   chatId: (chatId: number, userId: number | undefined) => `chat id: ${chatId}${userId ? ` · user id: ${userId}` : ''}`,
   added: (names: string) => `✓ ${names} — ברשימה`,
   alreadyListed: (names: string) => `${names} כבר ברשימה`,
@@ -38,6 +38,9 @@ const COPY = {
   renameWhich: (t: string, names: string) => `"${t}" מתאים לכמה: ${names} — כתבו את השם המלא`,
   renameTaken: (n: string) => `"${n}" כבר קיים — לאיחוד: /same`,
   renamed: (from: string, to: string) => `✓ "${from}" נקרא מעכשיו "${to}"`,
+  ignoreUsage: 'כתבו כך: /ignore קולבים — המוצר יוסר ולא יירשם יותר מקבלות',
+  ignored: (n: string) => `✓ "${n}" הוסר — לא יירשם יותר מקבלות`,
+  ignoreInUse: (n: string) => `"${n}" כבר בשימוש (דיווחים או קניות קודמות) — לא הסרתי`,
   mergeAsk: (s: string, t: string) => `🔀 לאחד את "${s}" לתוך "${t}"? היסטוריית הקניות עוברת, "${s}" יימחק`,
   mergeYes: '✓ אחד',
   mergeNo: '✕ ביטול',
@@ -130,6 +133,8 @@ export class Dispatcher {
         return this.onSame(event);
       case 'rename':
         return this.onRename(event);
+      case 'ignore':
+        return this.onIgnore(event);
       default:
         return [{ intent: 'unknown-command', command: event.command }, []];
     }
@@ -250,22 +255,40 @@ export class Dispatcher {
     const [from, to] = parts;
     if (parts.length !== 2 || !from || !to) return [{ intent: 'rename-usage' }, [{ type: 'send', text: COPY.renameUsage }]];
 
-    // The old name: exact, or the only item a partial name finds ("ארונה" → "ארונה ישראל").
-    let item = await this.d.registry.findExact(from);
-    if (!item) {
-      const hits = await this.d.registry.search(from);
-      if (hits.length === 0) return [{ intent: 'rename-unknown' }, [{ type: 'send', text: COPY.renameUnknown(from) }]];
-      if (hits.length > 1) {
-        return [{ intent: 'rename-ambiguous' }, [{ type: 'send', text: COPY.renameWhich(from, hits.map((h) => h.name).join(', ')) }]];
-      }
-      item = hits[0]!;
-    }
+    const found = await this.findOne(from);
+    if ('reply' in found) return [{ intent: 'rename-not-found' }, [found.reply]];
+    const { item } = found;
     // The new name must not already be another product — that's a merge, not a rename.
     const clash = await this.d.registry.findExact(to);
     if (clash && clash.id !== item.id) return [{ intent: 'rename-taken', itemId: clash.id }, [{ type: 'send', text: COPY.renameTaken(to) }]];
 
     const renamed = await this.d.registry.rename(item.id, to);
     return [{ intent: 'renamed', itemId: item.id, from: item.name, to: renamed.name }, [{ type: 'send', text: COPY.renamed(item.name, renamed.name) }]];
+  }
+
+  // ---------- /ignore A: stop tracking a product (hangers off a supermarket receipt) ----------
+
+  private async onIgnore(msg: InboundMessage): Promise<[Record<string, unknown>, Reply[]]> {
+    const name = msg.text.replace(/^\/\S+\s*/, '').trim();
+    if (!name) return [{ intent: 'ignore-usage' }, [{ type: 'send', text: COPY.ignoreUsage }]];
+    const found = await this.findOne(name);
+    if ('reply' in found) return [{ intent: 'ignore-not-found' }, [found.reply]];
+    const r = await this.d.stock.ignore(found.item);
+    if (r.status === 'in-use') return [{ intent: 'ignore-in-use', itemId: found.item.id }, [{ type: 'send', text: COPY.ignoreInUse(found.item.name) }]];
+    return [
+      { intent: 'ignored', itemId: found.item.id, removedPurchases: r.removedPurchases },
+      [{ type: 'send', text: COPY.ignored(found.item.name) }],
+    ];
+  }
+
+  /** An item named exactly, or the only one a partial name finds ("ארונה" → "ארונה ישראל"); else a reply saying why not. */
+  private async findOne(text: string): Promise<{ item: Item } | { reply: Reply }> {
+    const exact = await this.d.registry.findExact(text);
+    if (exact) return { item: exact };
+    const hits = await this.d.registry.search(text);
+    if (hits.length === 1) return { item: hits[0]! };
+    if (hits.length === 0) return { reply: { type: 'send', text: COPY.renameUnknown(text) } };
+    return { reply: { type: 'send', text: COPY.renameWhich(text, hits.map((h) => h.name).join(', ')) } };
   }
 
   // ---------- /same A = B: "these are the same product for us" (R21) ----------

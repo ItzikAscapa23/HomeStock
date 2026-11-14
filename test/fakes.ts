@@ -121,6 +121,11 @@ export class MemPurchaseStore implements PurchaseStore {
   async listForItem(itemId: string) {
     return this.rows.filter((r) => r.itemId === itemId);
   }
+  async deleteForItem(itemId: string) {
+    const before = this.rows.length;
+    for (let i = this.rows.length - 1; i >= 0; i--) if (this.rows[i]!.itemId === itemId) this.rows.splice(i, 1);
+    return before - this.rows.length;
+  }
   async reassign(from: string, to: string) {
     const moving = this.rows.filter((r) => r.itemId === from);
     for (const r of moving) r.itemId = to;

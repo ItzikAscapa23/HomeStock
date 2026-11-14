@@ -131,6 +131,8 @@ export interface PurchaseStore {
   listForItem(itemId: string): Promise<Purchase[]>;
   /** Moves an item's whole purchase history to another item (merge). Returns how many rows moved. */
   reassign(fromItemId: string, toItemId: string): Promise<number>;
+  /** Deletes an item's purchase history (the item is no longer tracked). Returns how many rows. */
+  deleteForItem(itemId: string): Promise<number>;
 }
 
 /** Receipt bookkeeping. `claim` is the duplicate guard: the same file twice is recorded once. */
@@ -331,6 +333,19 @@ export class DynamoPurchaseStore implements PurchaseStore {
         new DeleteCommand({
           TableName: this.table,
           Key: keys.purchase(fromItemId, p.purchasedOn, p.receiptId ?? p.source, p.lineIndex ?? 0),
+        }),
+      );
+    }
+    return rows.length;
+  }
+
+  async deleteForItem(itemId: string): Promise<number> {
+    const rows = await this.listForItem(itemId);
+    for (const p of rows) {
+      await this.db.send(
+        new DeleteCommand({
+          TableName: this.table,
+          Key: keys.purchase(itemId, p.purchasedOn, p.receiptId ?? p.source, p.lineIndex ?? 0),
         }),
       );
     }
